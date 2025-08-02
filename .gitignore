@@ -6,6 +6,8 @@
 # Service Account Keys
 *.json
 service-account-key.json
+# Allow MCP configuration
+!.mcp.json
 
 # Node modules
 node_modules/

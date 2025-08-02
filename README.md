@@ -125,6 +125,43 @@ Use `npm install --legacy-peer-deps` no frontend devido ao React 19.
 - Configure CORS apropriadamente
 - Implemente rate limiting (já configurado)
 
+## 🔌 Integração com Supabase MCP (Claude Code)
+
+Este projeto inclui configuração para integração com Supabase através do MCP (Model Context Protocol) do Claude Code.
+
+### Configurando o Supabase MCP
+
+1. **Obtenha suas credenciais do Supabase:**
+   - Acesse seu projeto no [Supabase Dashboard](https://app.supabase.com)
+   - Vá em Settings → General → Reference ID (este é seu `project-ref`)
+   - Vá em Account → Access Tokens → Generate New Token
+
+2. **Configure as variáveis de ambiente:**
+   
+   Adicione ao seu arquivo `.env`:
+   ```env
+   SUPABASE_PROJECT_REF=seu_project_ref_aqui
+   SUPABASE_ACCESS_TOKEN=seu_access_token_aqui
+   ```
+
+3. **O arquivo `.mcp.json` já está configurado** no projeto com:
+   - Modo read-only para segurança
+   - Integração automática com Claude Code
+   - Expansão de variáveis de ambiente
+
+4. **Para verificar se o MCP está funcionando:**
+   ```bash
+   # No Claude Code, execute:
+   /mcp
+   ```
+
+### Benefícios da Integração
+
+- Acesso direto aos dados do Supabase dentro do Claude Code
+- Consultas SQL facilitadas
+- Visualização de estrutura de banco de dados
+- Modo read-only previne alterações acidentais
+
 ## 📦 Deploy
 
 Para deploy em produção:
