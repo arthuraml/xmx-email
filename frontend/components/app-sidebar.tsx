@@ -1,8 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Home, Inbox, Send, Mail } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { User } from '@supabase/supabase-js'
+import { createClient } from '@/utils/supabase/client'
+import { Home, Inbox, Send, Mail, LogOut } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -12,8 +14,10 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarFooter,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { toast } from 'sonner'
 
 const menuItems = [
   {
@@ -33,8 +37,24 @@ const menuItems = [
   },
 ]
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  user: User
+}
+
+export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
+
+  const handleLogout = async () => {
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push('/login')
+      toast.success('Logout realizado com sucesso')
+    } catch (error) {
+      toast.error('Erro ao fazer logout')
+    }
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -73,6 +93,25 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-4 border-t">
+        <div className="flex items-center justify-between">
+          <div className="text-sm group-data-[collapsible=icon]:hidden">
+            <p className="font-medium truncate">{user.email}</p>
+            <p className="text-gray-500">
+              {user.user_metadata?.username || 'Usuário'}
+            </p>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={handleLogout}
+            title="Sair"
+            className="h-8 w-8"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
+      </SidebarFooter>
     </Sidebar>
   )
 }
