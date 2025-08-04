@@ -1,180 +1,277 @@
-# XMX Email - Gmail Integration
+# XMX Email - Sistema de Gerenciamento de E-mails com Gmail e Supabase
 
-Sistema de gerenciamento de emails integrado com Gmail API para o email support@biofraga.com
+<div align="center">
+  <img src="https://img.shields.io/badge/Next.js-15.2.4-000000?style=for-the-badge&logo=next.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" />
+  <img src="https://img.shields.io/badge/Supabase-Latest-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+</div>
 
-## 📋 Pré-requisitos
+## 📋 Visão Geral
 
-- Node.js 18+ 
-- Conta Google Workspace com email support@biofraga.com
-- Credenciais da API do Gmail (Service Account ou OAuth2)
+XMX Email é um sistema moderno de gerenciamento de e-mails que integra Gmail API com autenticação Supabase. Desenvolvido com Next.js 15, React 19 e TypeScript, oferece uma interface intuitiva para gerenciar e-mails corporativos.
 
-## 🚀 Configuração Rápida
+### 🌟 Principais Funcionalidades
 
-### 1. Configuração do Google Cloud Console
+- ✉️ **Integração Gmail API** - Acesso completo à caixa de entrada e e-mails enviados
+- 🔐 **Autenticação Segura** - Sistema de login com Supabase Auth
+- 🎨 **Interface Moderna** - UI responsiva com shadcn/ui e Tailwind CSS
+- 🚀 **Performance Otimizada** - Cache inteligente e loading states
+- 🔌 **Integração MCP** - Suporte para Claude Code com Supabase MCP
+- 📱 **100% Responsivo** - Funciona perfeitamente em desktop e mobile
 
-1. Acesse [Google Cloud Console](https://console.cloud.google.com)
-2. Crie um novo projeto ou selecione um existente
-3. Ative a Gmail API:
-   - Menu → APIs e Serviços → Biblioteca
-   - Procure por "Gmail API" e ative
+## 🏗️ Arquitetura do Projeto
 
-### 2. Configuração da Autenticação (Service Account - Recomendado)
-
-1. No Google Cloud Console:
-   - Menu → APIs e Serviços → Credenciais
-   - Criar credenciais → Conta de serviço
-   - Preencha os detalhes e crie
-   - Gere uma chave JSON e baixe
-
-2. Configure Domain-Wide Delegation no Google Workspace Admin:
-   - Acesse [Admin Console](https://admin.google.com)
-   - Segurança → Controle de acesso e dados → Controles da API
-   - Gerenciar delegação em todo o domínio
-   - Adicione o Client ID da Service Account
-   - Adicione os escopos:
-     ```
-     https://www.googleapis.com/auth/gmail.readonly
-     https://www.googleapis.com/auth/gmail.modify
-     ```
-
-### 3. Configuração do Projeto
-
-1. Clone o repositório e configure o ambiente:
-
-```bash
-# Clone o repositório
-git clone [seu-repositorio]
-cd xmx-email
-
-# Configure as variáveis de ambiente
-cp .env.example .env
+```
+xmx-email/
+├── frontend/                 # Aplicação Next.js
+│   ├── app/                 # App Router (Next.js 15)
+│   │   ├── (app)/          # Rotas autenticadas
+│   │   │   ├── dashboard/  # Painel principal
+│   │   │   ├── inbox/      # Caixa de entrada
+│   │   │   └── sent/       # E-mails enviados
+│   │   ├── api/            # API Routes
+│   │   └── login/          # Página de autenticação
+│   ├── components/         # Componentes React
+│   │   ├── ui/            # shadcn/ui components
+│   │   └── ...            # Componentes customizados
+│   ├── contexts/          # Context API (AuthContext)
+│   ├── lib/               # Utilitários e configurações
+│   └── utils/             # Helpers do Supabase
+│
+├── backend/                # API Node.js/Express
+│   ├── src/
+│   │   ├── config/        # Configurações (Google Auth)
+│   │   ├── routes/        # Endpoints da API
+│   │   └── services/      # Lógica de negócios (Gmail)
+│   └── server.js          # Servidor Express
+│
+└── docs/                   # Documentação adicional
+    ├── CLAUDE.md          # Guia para Claude Code
+    └── PLANO_LOGIN_SUPABASE.md
 ```
 
-2. Edite o arquivo `.env` na raiz do projeto:
+## 🚀 Início Rápido
 
+### Pré-requisitos
+
+- Node.js 18+
+- Conta Google Workspace
+- Projeto Supabase configurado
+- Credenciais da Gmail API
+
+### 1. Clone o Repositório
+
+```bash
+git clone [seu-repositorio]
+cd xmx-email
+```
+
+### 2. Configure as Variáveis de Ambiente
+
+#### Frontend (.env.local)
 ```env
-# Caminho para o arquivo JSON da Service Account
-GOOGLE_SERVICE_ACCOUNT_KEY=./credentials/service-account-key.json
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://gtydmzumlicopgkddabh.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=seu_anon_key_aqui
 
-# Email do usuário para impersonar
-GMAIL_USER_EMAIL=support@biofraga.com
-
-# Configurações do servidor
-BACKEND_PORT=3001
+# API Backend
 NEXT_PUBLIC_API_URL=http://localhost:3001/api
 ```
 
-3. Coloque o arquivo JSON da Service Account no caminho especificado
+#### Backend (.env)
+```env
+# Google Service Account
+GOOGLE_SERVICE_ACCOUNT_KEY=./credentials/service-account-key.json
+GMAIL_USER_EMAIL=support@biofraga.com
 
-### 4. Instalação e Execução
+# Server
+BACKEND_PORT=3001
+```
+
+### 3. Instale as Dependências
 
 ```bash
-# Instalar dependências do backend
-cd backend
-npm install
-
-# Instalar dependências do frontend
-cd ../frontend
+# Frontend
+cd frontend
 npm install --legacy-peer-deps
 
-# Executar o backend (em um terminal)
+# Backend
 cd ../backend
+npm install
+```
+
+### 4. Execute o Projeto
+
+```bash
+# Terminal 1 - Backend
+cd backend
 npm run dev
 
-# Executar o frontend (em outro terminal)
-cd ../frontend
+# Terminal 2 - Frontend
+cd frontend
 npm run dev
 ```
 
-## 🖥️ Acessando a Aplicação
+Acesse: http://localhost:3000
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:3001
-- Health Check: http://localhost:3001/health
+## 📚 Stack Tecnológica
 
-## 📚 Estrutura da API
+### Frontend
+- **Framework**: Next.js 15.2.4 (App Router)
+- **UI Library**: React 19
+- **Linguagem**: TypeScript 5
+- **Estilização**: Tailwind CSS 3.4
+- **Componentes**: shadcn/ui
+- **Autenticação**: Supabase Auth (@supabase/ssr)
+- **Ícones**: Lucide React
+- **Notificações**: Sonner
 
-### Endpoints Disponíveis
+### Backend
+- **Runtime**: Node.js
+- **Framework**: Express 4.19
+- **API Integration**: Google APIs (Gmail)
+- **Cache**: node-cache
+- **Segurança**: CORS, Rate Limiting
+- **Autenticação**: Google Service Account
 
-- `GET /api/gmail/inbox` - Lista emails da caixa de entrada
-- `GET /api/gmail/sent` - Lista emails enviados
-- `GET /api/gmail/message/:id` - Detalhes de um email específico
-- `POST /api/gmail/message/:id/read` - Marcar email como lido
-- `GET /api/gmail/search?q=query` - Buscar emails
+## 🔐 Autenticação e Segurança
 
-## 🔧 Solução de Problemas
+### Sistema de Login
 
-### Erro de Autenticação
+1. **Supabase Auth** - Gerenciamento completo de sessões
+2. **Middleware Protection** - Rotas protegidas server-side
+3. **Context API** - Estado global de autenticação
+4. **Cookies HttpOnly** - Sessões seguras
 
-1. Verifique se o arquivo da Service Account está no caminho correto
-2. Confirme que a Domain-Wide Delegation está configurada
-3. Verifique se o email no `.env` está correto
+### Configuração Gmail API
 
-### Erro "Next.js cookies() should be awaited"
+1. **Service Account** com Domain-Wide Delegation
+2. **OAuth Scopes** configurados:
+   - `gmail.readonly`
+   - `gmail.modify`
+3. **Rate Limiting** implementado
+4. **Cache de 5 minutos** para otimização
 
-Este erro já foi corrigido. Se aparecer novamente, verifique se as funções que usam `cookies()` são `async`.
+## 🔌 Integração Supabase MCP
 
-### Dependências com conflitos
+### Configuração para Claude Code
 
-Use `npm install --legacy-peer-deps` no frontend devido ao React 19.
-
-## 🛡️ Segurança
-
-- Nunca commite o arquivo `.env` ou credenciais
-- Use HTTPS em produção
-- Configure CORS apropriadamente
-- Implemente rate limiting (já configurado)
-
-## 🔌 Integração com Supabase MCP (Claude Code)
-
-Este projeto inclui configuração para integração com Supabase através do MCP (Model Context Protocol) do Claude Code.
-
-### Configurando o Supabase MCP
-
-1. **Obtenha suas credenciais do Supabase:**
-   - Acesse seu projeto no [Supabase Dashboard](https://app.supabase.com)
-   - Vá em Settings → General → Reference ID (este é seu `project-ref`)
-   - Vá em Account → Access Tokens → Generate New Token
-
-2. **Configure as variáveis de ambiente:**
-   
-   Adicione ao seu arquivo `.env`:
+1. **Arquivo .mcp.json** já configurado
+2. **Variáveis necessárias**:
    ```env
-   SUPABASE_PROJECT_REF=seu_project_ref_aqui
-   SUPABASE_ACCESS_TOKEN=seu_access_token_aqui
+   SUPABASE_PROJECT_REF=gtydmzumlicopgkddabh
+   SUPABASE_ACCESS_TOKEN=seu_token_aqui
    ```
-
-3. **O arquivo `.mcp.json` já está configurado** no projeto com:
-   - Modo read-only para segurança
-   - Integração automática com Claude Code
-   - Expansão de variáveis de ambiente
-
-4. **Para verificar se o MCP está funcionando:**
+3. **Verificar integração**:
    ```bash
-   # No Claude Code, execute:
+   # No Claude Code
    /mcp
    ```
 
-### Benefícios da Integração
+## 📱 Funcionalidades Implementadas
 
-- Acesso direto aos dados do Supabase dentro do Claude Code
-- Consultas SQL facilitadas
-- Visualização de estrutura de banco de dados
-- Modo read-only previne alterações acidentais
+### ✅ Completas
+- Sistema de login/logout com Supabase
+- Listagem de e-mails (inbox/sent)
+- Visualização detalhada de e-mails
+- Marcar como lido
+- Interface responsiva com sidebar
+- Loading states e empty states
+- Cache inteligente
 
-## 📦 Deploy
+### 🚧 Em Desenvolvimento
+- Composição de e-mails
+- Busca e filtros avançados
+- Anexos de arquivos
+- Notificações em tempo real
+- Paginação para grandes volumes
 
-Para deploy em produção:
+## 🛠️ Comandos Úteis
 
-1. Configure as variáveis de ambiente no seu serviço de hosting
-2. Atualize `NEXT_PUBLIC_API_URL` para a URL de produção
-3. Configure HTTPS e domínios apropriados
-4. Ajuste CORS no backend para aceitar apenas seu domínio
+### Frontend
+```bash
+npm run dev      # Desenvolvimento
+npm run build    # Build de produção
+npm run start    # Executar build
+npm run lint     # Verificar código
+```
+
+### Backend
+```bash
+npm run dev      # Desenvolvimento (nodemon)
+npm start        # Produção
+```
+
+## 📋 Configuração Completa
+
+### 1. Google Cloud Console
+
+1. Criar projeto ou usar existente
+2. Ativar Gmail API
+3. Criar Service Account
+4. Configurar Domain-Wide Delegation
+5. Baixar chave JSON
+
+### 2. Supabase Dashboard
+
+1. Criar novo projeto
+2. Configurar autenticação
+3. Obter URL e Anon Key
+4. Criar usuário admin (opcional)
+
+### 3. Deploy em Produção
+
+1. Configure variáveis no serviço de hosting
+2. Use HTTPS obrigatoriamente
+3. Configure CORS apropriadamente
+4. Implemente monitoramento
+
+## 🐛 Solução de Problemas
+
+### Erros Comuns
+
+1. **"cookies() should be awaited"**
+   - Solução: Funções que usam cookies devem ser async
+
+2. **Conflitos de dependências React 19**
+   - Solução: Use `npm install --legacy-peer-deps`
+
+3. **Erro de autenticação Gmail**
+   - Verificar Service Account e Domain-Wide Delegation
+
+4. **Session não persiste**
+   - Verificar configuração do middleware Supabase
 
 ## 🤝 Contribuindo
 
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
+1. Fork o projeto
+2. Crie sua feature branch (`git checkout -b feature/NovaFuncionalidade`)
+3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
+4. Push para a branch (`git push origin feature/NovaFuncionalidade`)
 5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto está sob licença privada. Todos os direitos reservados.
+
+## 👥 Equipe
+
+- **Desenvolvimento**: Equipe XMX
+- **Email de Suporte**: support@biofraga.com
+
+## 📞 Suporte
+
+Para questões e suporte:
+- 📧 Email: support@biofraga.com
+- 📚 Documentação: Ver pasta `/docs`
+- 🐛 Issues: GitHub Issues
+
+---
+
+<div align="center">
+  <strong>XMX Email</strong> - Sistema profissional de gerenciamento de e-mails
+  <br>
+  Desenvolvido com ❤️ pela equipe XMX
+</div>
