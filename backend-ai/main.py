@@ -11,7 +11,7 @@ from loguru import logger
 
 # Import local modules
 from app.core.config import settings
-from app.api.v1 import emails_router, prompts_router, analytics_router, health_router
+from app.api.v1 import emails_router, health_router
 from app.db.supabase import init_supabase
 from app.core.gemini import init_gemini_client
 
@@ -84,18 +84,6 @@ app.include_router(
     emails_router,
     prefix="/api/v1/emails",
     tags=["emails"]
-)
-
-app.include_router(
-    prompts_router,
-    prefix="/api/v1/prompts",
-    tags=["prompts"]
-)
-
-app.include_router(
-    analytics_router,
-    prefix="/api/v1/analytics",
-    tags=["analytics"]
 )
 
 # Root endpoint

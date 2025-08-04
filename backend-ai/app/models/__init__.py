@@ -22,15 +22,6 @@ from .response import (
     EmailStatusResponse
 )
 
-from .prompt import (
-    DecisionCriteria,
-    PromptCreate,
-    PromptUpdate,
-    PromptResponse,
-    PromptList,
-    PromptTestRequest,
-    PromptTestResponse
-)
 
 __all__ = [
     # Email models
@@ -49,14 +40,5 @@ __all__ = [
     "GeminiDecision",
     "EmailProcessingResult",
     "BatchProcessingResult",
-    "EmailStatusResponse",
-    
-    # Prompt models
-    "DecisionCriteria",
-    "PromptCreate",
-    "PromptUpdate",
-    "PromptResponse",
-    "PromptList",
-    "PromptTestRequest",
-    "PromptTestResponse"
+    "EmailStatusResponse"
 ]

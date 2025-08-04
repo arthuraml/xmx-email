@@ -5,6 +5,7 @@ Configuração e cliente do Google Gemini
 from google import genai
 from typing import Optional, Dict, Any
 import json
+import os
 from loguru import logger
 
 from .config import settings
@@ -36,6 +37,40 @@ def get_gemini_client() -> genai.Client:
     if gemini_client is None:
         return init_gemini_client()
     return gemini_client
+
+
+def get_system_prompt() -> str:
+    """
+    Lê o system prompt do arquivo configurado
+    
+    Returns:
+        Conteúdo do system prompt
+        
+    Raises:
+        FileNotFoundError: Se o arquivo não for encontrado
+    """
+    try:
+        # Constrói o caminho completo para o arquivo
+        file_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            settings.SYSTEM_PROMPT_FILE
+        )
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            
+        if not content:
+            raise ValueError("System prompt file is empty")
+            
+        logger.info(f"System prompt loaded from {settings.SYSTEM_PROMPT_FILE}")
+        return content
+        
+    except FileNotFoundError:
+        logger.error(f"System prompt file not found: {settings.SYSTEM_PROMPT_FILE}")
+        raise
+    except Exception as e:
+        logger.error(f"Error loading system prompt: {e}")
+        raise
 
 
 async def analyze_email_with_gemini(
@@ -113,6 +148,48 @@ async def analyze_email_with_gemini(
             )
         )
         
+        # Captura os metadados de uso (tokens)
+        usage_metadata = {
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "thought_tokens": 0,
+            "total_tokens": 0
+        }
+        
+        # Verifica se response tem usage_metadata
+        if hasattr(response, 'usage_metadata'):
+            metadata = response.usage_metadata
+            
+            # Captura tokens de prompt/input
+            if hasattr(metadata, 'prompt_token_count'):
+                usage_metadata["prompt_tokens"] = metadata.prompt_token_count
+                
+            # Captura tokens de output/candidates
+            if hasattr(metadata, 'candidates_token_count'):
+                usage_metadata["output_tokens"] = metadata.candidates_token_count
+                
+            # Captura tokens de pensamento (para modelos 2.5)
+            if hasattr(metadata, 'thoughts_token_count'):
+                usage_metadata["thought_tokens"] = metadata.thoughts_token_count
+                
+            # Captura total de tokens
+            if hasattr(metadata, 'total_token_count'):
+                usage_metadata["total_tokens"] = metadata.total_token_count
+            else:
+                # Calcula total se não fornecido
+                usage_metadata["total_tokens"] = (
+                    usage_metadata["prompt_tokens"] + 
+                    usage_metadata["output_tokens"] + 
+                    usage_metadata["thought_tokens"]
+                )
+        
+        logger.info(
+            f"Token usage - Prompt: {usage_metadata['prompt_tokens']}, "
+            f"Output: {usage_metadata['output_tokens']}, "
+            f"Thought: {usage_metadata['thought_tokens']}, "
+            f"Total: {usage_metadata['total_tokens']}"
+        )
+        
         # Extrai e valida JSON da resposta
         result_text = response.text
         
@@ -162,6 +239,9 @@ async def analyze_email_with_gemini(
             f"Decisão: {result['decision']}, "
             f"Confiança: {result['confidence']:.2f}"
         )
+        
+        # Adiciona os metadados de uso ao resultado
+        result["usage_metadata"] = usage_metadata
         
         return result
         

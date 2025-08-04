@@ -111,6 +111,12 @@ class EmailProcessingResult(BaseModel):
     job_id: Optional[str] = Field(None, description="ID do job (para processamento assíncrono)")
     error: Optional[str] = Field(None, description="Mensagem de erro se falhou")
     
+    # Token usage information
+    prompt_tokens: Optional[int] = Field(None, ge=0, description="Número de tokens de entrada (prompt)")
+    output_tokens: Optional[int] = Field(None, ge=0, description="Número de tokens de saída (resposta)")
+    thought_tokens: Optional[int] = Field(None, ge=0, description="Número de tokens de pensamento (para modelos com thinking)")
+    total_tokens: Optional[int] = Field(None, ge=0, description="Total de tokens utilizados")
+    
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -125,7 +131,11 @@ class EmailProcessingResult(BaseModel):
                     "tone": "professional"
                 },
                 "processing_time": 1.234,
-                "processed_at": "2025-01-15T10:30:02Z"
+                "processed_at": "2025-01-15T10:30:02Z",
+                "prompt_tokens": 250,
+                "output_tokens": 180,
+                "thought_tokens": 0,
+                "total_tokens": 430
             }
         }
     }

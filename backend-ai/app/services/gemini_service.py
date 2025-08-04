@@ -6,7 +6,7 @@ import time
 from typing import Dict, Any, Optional, List
 from loguru import logger
 
-from ..core.gemini import analyze_email_with_gemini, test_gemini_connection
+from ..core.gemini import analyze_email_with_gemini, test_gemini_connection, get_system_prompt
 from ..core.config import settings
 from ..models.email import EmailInput
 from ..models.response import (
@@ -26,7 +26,7 @@ class GeminiService:
     """
     
     def __init__(self):
-        self.default_prompt = settings.DEFAULT_SYSTEM_PROMPT
+        self.default_prompt = None  # Carregado sob demanda
     
     async def process_email(
         self,
@@ -60,7 +60,13 @@ class GeminiService:
             }
             
             # Usa prompt padrão se não fornecido
-            prompt = system_prompt or self.default_prompt
+            if system_prompt:
+                prompt = system_prompt
+            else:
+                # Carrega o prompt do arquivo se ainda não foi carregado
+                if self.default_prompt is None:
+                    self.default_prompt = get_system_prompt()
+                prompt = self.default_prompt
             
             # Analisa com Gemini
             gemini_result = await analyze_email_with_gemini(
@@ -71,6 +77,9 @@ class GeminiService:
             
             # Converte resultado para modelos Pydantic
             decision = self._parse_gemini_response(gemini_result)
+            
+            # Extrai metadados de uso (tokens)
+            usage_metadata = gemini_result.get("usage_metadata", {})
             
             # Calcula tempo de processamento
             processing_time = time.time() - start_time
@@ -83,7 +92,11 @@ class GeminiService:
                 confidence=decision.confidence,
                 reason=decision.reason,
                 suggested_response=decision.suggested_response,
-                processing_time=processing_time
+                processing_time=processing_time,
+                prompt_tokens=usage_metadata.get("prompt_tokens"),
+                output_tokens=usage_metadata.get("output_tokens"),
+                thought_tokens=usage_metadata.get("thought_tokens"),
+                total_tokens=usage_metadata.get("total_tokens")
             )
             
         except Exception as e:

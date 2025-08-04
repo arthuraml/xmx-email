@@ -6,7 +6,8 @@ c.t.g.a09@gmail.com
 ### Supabase:
 
 c.t.g.a09@gmail.com
-frj.jpk2qvk4ZVR9kqk
+conta: frj.jpk2qvk4ZVR9kqk
+banco de dados: rjdA5z9QAhSYT3q
 
 contato@xmxcorp.com
 2025xmxD2Hb*2$0JQP;vv

@@ -32,11 +32,9 @@ def test_imports():
         from app.models.response import GeminiDecision, EmailProcessingResult
         print("✅ Response models importados com sucesso")
         
-        from app.models.prompt import PromptCreate, PromptResponse
-        print("✅ Prompt models importados com sucesso")
         
         # API imports
-        from app.api.v1 import emails_router, prompts_router, analytics_router, health_router
+        from app.api.v1 import emails_router, health_router
         print("✅ API routers importados com sucesso")
         
         # DB imports
