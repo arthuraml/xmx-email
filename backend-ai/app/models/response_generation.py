@@ -133,8 +133,19 @@ class BatchResponseGenerationInput(BaseModel):
                 "requests": [
                     {
                         "email_id": "msg_001",
-                        "email_content": {...},
-                        "classification": {...}
+                        "email_content": {
+                            "from": "cliente@example.com",
+                            "to": "support@biofraga.com",
+                            "subject": "Dúvida sobre produto",
+                            "body": "Preciso de ajuda com meu pedido",
+                            "received_at": "2025-01-06T10:00:00Z"
+                        },
+                        "classification": {
+                            "is_support": True,
+                            "is_tracking": False,
+                            "urgency": "medium",
+                            "email_type": "support"
+                        }
                     }
                 ],
                 "save_to_db": True
