@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { User } from '@supabase/supabase-js'
 import { createClient } from '@/utils/supabase/client'
-import { Home, Inbox, Send, Mail, LogOut } from "lucide-react"
+import { Home, Inbox, Send, Mail, LogOut, Bot } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -34,6 +34,11 @@ const menuItems = [
     title: "Caixa de Saída",
     href: "/sent",
     icon: Send,
+  },
+  {
+    title: "LLM",
+    href: "/llm",
+    icon: Bot,
   },
 ]
 

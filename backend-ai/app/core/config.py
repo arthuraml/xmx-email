@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str  # Service role key for backend
     
+    # MySQL Configuration
+    MYSQL_HOST: str = "localhost"
+    MYSQL_PORT: int = 3306
+    MYSQL_DATABASE: str = "xmx_tracking"
+    MYSQL_USER: str = "root"
+    MYSQL_PASSWORD: str
+    MYSQL_POOL_SIZE: int = 5
+    MYSQL_POOL_MAX_OVERFLOW: int = 10
+    
     # Redis Configuration (for future async processing)
     REDIS_URL: Optional[str] = "redis://localhost:6379"
     REDIS_DB: int = 0

@@ -11,9 +11,16 @@ from loguru import logger
 
 # Import local modules
 from app.core.config import settings
-from app.api.v1 import emails_router, health_router
+from app.api.v1 import (
+    emails_router, 
+    health_router, 
+    classification_router, 
+    tracking_router,
+    response_generation_router
+)
 from app.db.supabase import init_supabase
 from app.core.gemini import init_gemini_client
+from app.services.mysql_service import mysql_service
 
 # Configure logger
 logger.add(
@@ -37,12 +44,22 @@ async def lifespan(app: FastAPI):
     await init_supabase()
     init_gemini_client()
     
+    # Inicializar MySQL
+    try:
+        await mysql_service.initialize()
+        logger.info("MySQL service initialized")
+    except Exception as e:
+        logger.warning(f"MySQL initialization failed (non-critical): {e}")
+    
     logger.info("Backend iniciado com sucesso!")
     
     yield
     
     # Shutdown
     logger.info("Encerrando XMX Email AI Backend...")
+    
+    # Fechar conexão MySQL
+    await mysql_service.close()
 
 
 # Criar aplica��o FastAPI
@@ -84,6 +101,24 @@ app.include_router(
     emails_router,
     prefix="/api/v1/emails",
     tags=["emails"]
+)
+
+app.include_router(
+    classification_router,
+    prefix="/api/v1/classification",
+    tags=["classification"]
+)
+
+app.include_router(
+    tracking_router,
+    prefix="/api/v1/tracking",
+    tags=["tracking"]
+)
+
+app.include_router(
+    response_generation_router,
+    prefix="/api/v1/response",
+    tags=["response"]
 )
 
 # Root endpoint

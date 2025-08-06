@@ -1,6 +1,8 @@
--Configurar o backend python corretamente
+-Melhorar endpoints de processamento de e-mail
 
--Integrar Google Gemini com o projeto
+-Melhorar design do app
+
+-Trocar sistema de autenticação do gmail de Oauth para programático
 
 -Criar system prompts para definir o algorítimo que a LLM deve seguir
 

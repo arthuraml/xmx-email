@@ -1,31 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+import { createClient } from '@/utils/supabase/server';
+import { gmailService } from '@/lib/gmail-service';
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const limit = searchParams.get('limit') || '20';
+    // Get authenticated user
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
     
-    const response = await fetch(`${API_URL}/gmail/inbox?limit=${limit}`, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      throw new Error(`Backend API error: ${response.statusText}`);
+    if (userError || !user) {
+      return NextResponse.json({
+        success: false,
+        error: 'User not authenticated'
+      }, { status: 401 });
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
+    // Get query parameters
+    const searchParams = request.nextUrl.searchParams;
+    const limit = parseInt(searchParams.get('limit') || '20', 10);
+    
+    // Fetch inbox messages using the Gmail service
+    const messages = await gmailService.getInboxMessages(user.email!, limit);
+    
+    return NextResponse.json({
+      success: true,
+      messages,
+      count: messages.length
+    });
+  } catch (error: any) {
     console.error('Error fetching inbox:', error);
+    
+    // Check if it's an authentication error
+    if (error.message?.includes('Not authenticated') || error.message?.includes('authentication')) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Gmail not connected. Please authenticate first.',
+          requiresAuth: true
+        },
+        { status: 401 }
+      );
+    }
+    
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Failed to fetch inbox messages' 
+        error: error.message || 'Failed to fetch inbox messages' 
       },
       { status: 500 }
     );

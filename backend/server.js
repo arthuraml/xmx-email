@@ -147,6 +147,10 @@ app.get('/auth/google/callback', async (req, res) => {
 const gmailRoutes = require('./src/routes/gmail.routes');
 app.use('/api/gmail', gmailRoutes);
 
+// Webhook routes for email processing
+const webhookRoutes = require('./src/routes/webhook.routes');
+app.use('/api/webhook', webhookRoutes);
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
