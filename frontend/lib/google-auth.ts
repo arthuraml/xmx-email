@@ -26,11 +26,21 @@ export class GoogleAuthService {
   ];
 
   constructor() {
-    const clientId = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     const redirectUri = process.env.NODE_ENV === 'production'
-      ? process.env.GOOGLE_REDIRECT_URI_PROD!
-      : process.env.GOOGLE_REDIRECT_URI!;
+      ? process.env.GOOGLE_REDIRECT_URI_PROD
+      : process.env.GOOGLE_REDIRECT_URI;
+
+    // Validate required environment variables
+    if (!clientId || !clientSecret || !redirectUri) {
+      const missing = [];
+      if (!clientId) missing.push('GOOGLE_CLIENT_ID');
+      if (!clientSecret) missing.push('GOOGLE_CLIENT_SECRET');
+      if (!redirectUri) missing.push(process.env.NODE_ENV === 'production' ? 'GOOGLE_REDIRECT_URI_PROD' : 'GOOGLE_REDIRECT_URI');
+      
+      throw new Error(`Missing required environment variables: ${missing.join(', ')}. Please check your .env file.`);
+    }
 
     this.oAuth2Client = new google.auth.OAuth2(
       clientId,
@@ -46,7 +56,7 @@ export class GoogleAuthService {
     return this.oAuth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: this.SCOPES,
-      prompt: 'consent', // Force consent to get refresh token
+      prompt: 'select_account consent', // Show account selection and force consent to get refresh token
       state: this.generateStateToken() // CSRF protection
     });
   }

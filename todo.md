@@ -1,3 +1,5 @@
+Próximo prompt: Na caixa de entrada, com o usuário logado, na linha de cada e-mail coloque um botão de ‘Processar e-mail’. Ao clicar nesse botão, o app deve enviar os dados desse e-mail para serem processados pelo backend python. Think hard.
+
 -Melhorar endpoints de processamento de e-mail (feito, realizar testes)
 
 -Melhorar design do app
