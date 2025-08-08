@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/utils/supabase/server'
+import { gmailService } from '@/lib/gmail-service'
 
-// Process email through Python backend
+// Process email through Python AI backend
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -13,41 +15,118 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Call Node.js webhook to process email
-    const webhookUrl = `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhook/process-email`
+    // Get authenticated user
+    const supabase = await createClient()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
     
-    // First, fetch email details from Gmail or database
-    // For now, we'll use mock data
-    const emailData = {
-      email_id,
-      from: 'cliente@example.com',
-      to: 'support@biofraga.com',
-      subject: 'Teste de processamento',
-      body: 'Este é um teste de processamento de e-mail',
-      received_at: new Date().toISOString()
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: 'User not authenticated' },
+        { status: 401 }
+      )
     }
     
-    const response = await fetch(webhookUrl, {
+    // Fetch actual email details from Gmail
+    let emailData
+    try {
+      const emailDetails = await gmailService.getMessageDetails(user.email!, email_id)
+      emailData = {
+        email_id: emailDetails.id,
+        from_address: emailDetails.from,
+        to_address: emailDetails.to,
+        subject: emailDetails.subject,
+        body: emailDetails.body,
+        received_at: emailDetails.date.toISOString()
+      }
+    } catch (gmailError) {
+      // Fallback to mock data if Gmail fetch fails
+      console.error('Gmail fetch error, using mock data:', gmailError)
+      emailData = {
+        email_id,
+        from_address: 'cliente@example.com',
+        to_address: 'support@biofraga.com',
+        subject: 'Teste de processamento',
+        body: 'Este é um teste de processamento de e-mail',
+        received_at: new Date().toISOString()
+      }
+    }
+    
+    // Call Python AI backend to process email
+    const aiBackendUrl = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8001/api/v1'
+    const apiKey = process.env.AI_API_KEY || 'your-api-key'
+    
+    // Step 1: Classify the email
+    const classificationResponse = await fetch(`${aiBackendUrl}/classification/classify`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify(emailData)
     })
     
-    if (!response.ok) {
-      const error = await response.json()
+    if (!classificationResponse.ok) {
+      const error = await classificationResponse.json()
       return NextResponse.json(
-        { error: error.error || 'Failed to process email' },
-        { status: response.status }
+        { error: error.detail || 'Failed to classify email' },
+        { status: classificationResponse.status }
       )
     }
     
-    const result = await response.json()
+    const classification = await classificationResponse.json()
+    
+    // Step 2: Check for tracking data if needed
+    let trackingData = null
+    if (classification.is_tracking) {
+      try {
+        const trackingResponse = await fetch(
+          `${aiBackendUrl}/tracking/search?email=${encodeURIComponent(emailData.from_address)}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
+          }
+        )
+        
+        if (trackingResponse.ok) {
+          const tracking = await trackingResponse.json()
+          if (tracking.orders && tracking.orders.length > 0) {
+            trackingData = tracking.orders[0]
+          }
+        }
+      } catch (trackingError) {
+        console.error('Tracking fetch error:', trackingError)
+      }
+    }
+    
+    // Step 3: Generate response if needed
+    let generatedResponse = null
+    if (classification.is_support || classification.is_tracking) {
+      const responseGeneration = await fetch(`${aiBackendUrl}/response/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          email_id: emailData.email_id,
+          email_content: emailData,
+          classification: classification,
+          tracking_data: trackingData
+        })
+      })
+      
+      if (responseGeneration.ok) {
+        generatedResponse = await responseGeneration.json()
+      }
+    }
     
     return NextResponse.json({
       success: true,
-      ...result
+      email_id: emailData.email_id,
+      classification,
+      tracking_data: trackingData,
+      generated_response: generatedResponse
     })
     
   } catch (error) {

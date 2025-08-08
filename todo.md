@@ -1,4 +1,4 @@
--Melhorar endpoints de processamento de e-mail
+-Melhorar endpoints de processamento de e-mail (feito, realizar testes)
 
 -Melhorar design do app
 

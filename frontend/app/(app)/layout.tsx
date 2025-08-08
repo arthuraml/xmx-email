@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
-import { cookies } from 'next/headers'
 
 export default async function AppLayout({
   children,
@@ -19,18 +18,12 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const cookieStore = await cookies()
-  const defaultOpen = cookieStore.get("sidebar:state")?.value === "true"
-
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
+    <SidebarProvider defaultOpen={true}>
       <div className="flex min-h-screen">
         <AppSidebar user={user} />
-        <SidebarInset>
-          <main className="p-4 md:p-6">
-            <div className="md:hidden mb-4">
-              <SidebarTrigger />
-            </div>
+        <SidebarInset className="flex-1">
+          <main className="h-full p-4 md:p-6">
             {children}
           </main>
         </SidebarInset>
