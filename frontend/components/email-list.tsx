@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatEmailDate, truncateText, extractEmailName } from '@/lib/gmail'
-import { Mail, Inbox } from 'lucide-react'
+import { Mail, Inbox, Cpu, Loader2 } from 'lucide-react'
 
 interface Email {
   id: string
@@ -23,6 +24,7 @@ interface EmailListProps {
   emails: Email[]
   loading?: boolean
   onEmailClick?: (email: Email) => void
+  onProcessEmail?: (emailId: string) => Promise<void>
   emptyMessage?: string
 }
 
@@ -30,14 +32,34 @@ export function EmailList({
   emails, 
   loading = false, 
   onEmailClick,
+  onProcessEmail,
   emptyMessage = "Nenhum e-mail encontrado."
 }: EmailListProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
 
   const handleEmailClick = (email: Email) => {
     setSelectedId(email.id)
     if (onEmailClick) {
       onEmailClick(email)
+    }
+  }
+
+  const handleProcessClick = async (e: React.MouseEvent, emailId: string) => {
+    e.stopPropagation() // Prevent card click
+    
+    if (!onProcessEmail || processingIds.has(emailId)) return
+    
+    setProcessingIds(prev => new Set(prev).add(emailId))
+    
+    try {
+      await onProcessEmail(emailId)
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(emailId)
+        return newSet
+      })
     }
   }
 
@@ -92,9 +114,28 @@ export function EmailList({
                     {extractEmailName(email.from)}
                   </span>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {formatEmailDate(email.date)}
-                </span>
+                <div className="flex items-center gap-2">
+                  {onProcessEmail && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => handleProcessClick(e, email.id)}
+                      disabled={processingIds.has(email.id)}
+                      className="h-7 px-2"
+                      title="Processar e-mail com IA"
+                    >
+                      {processingIds.has(email.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Cpu className="h-3.5 w-3.5" />
+                      )}
+                      <span className="ml-1 text-xs">Processar</span>
+                    </Button>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {formatEmailDate(email.date)}
+                  </span>
+                </div>
               </div>
               
               <h4 className={`text-sm ${email.isUnread ? 'font-medium' : ''} line-clamp-1`}>

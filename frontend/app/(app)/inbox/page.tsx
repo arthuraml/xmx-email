@@ -10,6 +10,7 @@ import { GmailAPI } from "@/lib/gmail"
 import { useGmailAuth } from "@/lib/hooks/use-gmail-auth"
 import { RefreshCw, Mail, AlertCircle, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { toast } from "sonner"
 
 interface Email {
   id: string
@@ -115,6 +116,39 @@ export default function InboxPage() {
 
   const handleBack = () => {
     setSelectedEmail(null)
+  }
+
+  const handleProcessEmail = async (emailId: string) => {
+    toast.loading('Processando e-mail com IA...', { id: emailId })
+    
+    try {
+      const result = await GmailAPI.processEmail(emailId)
+      
+      if (result.success) {
+        let message = 'E-mail processado com sucesso!'
+        
+        if (result.classification) {
+          const type = result.classification.is_support ? 'Suporte' : 
+                       result.classification.is_tracking ? 'Rastreamento' : 'Geral'
+          message = `E-mail classificado como: ${type}`
+          
+          if (result.tracking_data) {
+            message += ` | Pedido: ${result.tracking_data.order_id}`
+          }
+          
+          if (result.generated_response) {
+            message += ' | Resposta gerada'
+          }
+        }
+        
+        toast.success(message, { id: emailId })
+      } else {
+        toast.error(result.error || 'Erro ao processar e-mail', { id: emailId })
+      }
+    } catch (error) {
+      console.error('Error processing email:', error)
+      toast.error('Erro ao processar e-mail', { id: emailId })
+    }
   }
 
   // Mostrar loading enquanto verifica autenticação
@@ -263,6 +297,7 @@ export default function InboxPage() {
           emails={emails}
           loading={loading}
           onEmailClick={handleEmailClick}
+          onProcessEmail={handleProcessEmail}
           emptyMessage="Sua caixa de entrada está vazia."
         />
       </CardContent>

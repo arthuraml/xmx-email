@@ -63,6 +63,39 @@ export class GmailAPI {
       return { success: false, error: 'Failed to mark message as read' };
     }
   }
+
+  static async processEmail(emailId: string): Promise<{
+    success: boolean;
+    email_id?: string;
+    classification?: any;
+    tracking_data?: any;
+    generated_response?: any;
+    error?: string;
+  }> {
+    try {
+      const response = await fetch('/api/llm/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email_id: emailId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to process email');
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error processing email:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to process email' 
+      };
+    }
+  }
 }
 
 export function formatEmailDate(date: Date | string): string {
