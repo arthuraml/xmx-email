@@ -39,40 +39,6 @@ def get_gemini_client() -> genai.Client:
     return gemini_client
 
 
-def get_system_prompt() -> str:
-    """
-    Lê o system prompt do arquivo configurado
-    
-    Returns:
-        Conteúdo do system prompt
-        
-    Raises:
-        FileNotFoundError: Se o arquivo não for encontrado
-    """
-    try:
-        # Constrói o caminho completo para o arquivo
-        file_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            settings.SYSTEM_PROMPT_FILE
-        )
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            
-        if not content:
-            raise ValueError("System prompt file is empty")
-            
-        logger.info(f"System prompt loaded from {settings.SYSTEM_PROMPT_FILE}")
-        return content
-        
-    except FileNotFoundError:
-        logger.error(f"System prompt file not found: {settings.SYSTEM_PROMPT_FILE}")
-        raise
-    except Exception as e:
-        logger.error(f"Error loading system prompt: {e}")
-        raise
-
-
 async def analyze_email_with_gemini(
     email_data: Dict[str, Any],
     system_prompt: str,

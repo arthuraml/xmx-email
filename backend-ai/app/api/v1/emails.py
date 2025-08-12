@@ -9,8 +9,8 @@ from loguru import logger
 from ...core.config import settings
 from ...core.security import verify_api_key
 from ...models.email import EmailInput, EmailBatch
-from ...models.response import EmailProcessingResult, BatchProcessingResult, ProcessingStatus
-from ...services.gemini_service import gemini_service
+from ...models.processing import EmailProcessingResponse
+from ...services.processing_service import processing_service
 
 # Router para endpoints de e-mail
 router = APIRouter()
@@ -18,62 +18,70 @@ router = APIRouter()
 
 @router.post(
     "/process",
-    response_model=EmailProcessingResult,
+    response_model=EmailProcessingResponse,
     summary="Processar um e-mail",
-    description="Analisa um e-mail e decide se deve ser respondido ou ignorado"
+    description="Classifica o e-mail e busca dados de rastreamento se necessário"
 )
 async def process_email(
     email: EmailInput,
-    system_prompt: Optional[str] = None,
+    custom_prompt: Optional[str] = None,
     api_key: str = Depends(verify_api_key)
-) -> EmailProcessingResult:
+) -> EmailProcessingResponse:
     """
-    Processa um único e-mail usando Gemini AI
+    Processa um e-mail: classifica e busca rastreamento automaticamente
+    
+    Este endpoint:
+    1. Classifica o e-mail via Gemini (suporte/rastreamento)
+    2. Se for rastreamento, busca automaticamente no MySQL
+    3. Retorna resposta consolidada com classificação e dados
     
     Args:
         email: Dados do e-mail para processar
-        system_prompt: Prompt customizado (opcional)
+        custom_prompt: Prompt customizado (opcional)
     
     Returns:
-        Resultado do processamento com decisão e resposta sugerida
+        Resultado unificado com classificação e dados de rastreamento
     """
     try:
-        logger.info(f"Processando e-mail {email.email_id} de {email.from_address}")
+        logger.info(f"Processing email {email.email_id} from {email.from_address}")
         
-        # Processa com Gemini
-        result = await gemini_service.process_email(
+        # Processa com serviço unificado
+        result = await processing_service.process_email(
             email=email,
-            system_prompt=system_prompt
+            custom_prompt=custom_prompt
         )
         
         logger.info(
-            f"E-mail {email.email_id} processado - "
-            f"Decisão: {result.decision}, "
-            f"Confiança: {result.confidence:.2f}"
+            f"Email {email.email_id} processed - "
+            f"Support: {result.classification.is_support}, "
+            f"Tracking: {result.classification.is_tracking}, "
+            f"Confidence: {result.classification.confidence:.2f}"
         )
+        
+        if result.tracking_data and result.tracking_data.found:
+            logger.info(f"Found {len(result.tracking_data.orders)} tracking records")
         
         return result
         
     except Exception as e:
-        logger.error(f"Erro ao processar e-mail: {e}")
+        logger.error(f"Error processing email: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao processar e-mail: {str(e)}"
+            detail=f"Error processing email: {str(e)}"
         )
 
 
 @router.post(
     "/process-batch",
-    response_model=BatchProcessingResult,
     summary="Processar múltiplos e-mails",
-    description="Processa um lote de e-mails de forma assíncrona"
+    description="Processa um lote de e-mails com classificação e rastreamento"
 )
 async def process_email_batch(
     batch: EmailBatch,
     background_tasks: BackgroundTasks,
-    system_prompt: Optional[str] = None,
+    custom_prompt: Optional[str] = None,
     api_key: str = Depends(verify_api_key)
-) -> BatchProcessingResult:
+) -> Dict[str, Any]:
     """
     Processa múltiplos e-mails em lote
     
@@ -97,46 +105,39 @@ async def process_email_batch(
             _process_batch_background,
             job_id=job_id,
             emails=batch.emails,
-            system_prompt=system_prompt,
+            custom_prompt=custom_prompt,
             webhook_url=batch.webhook_url
         )
         
         # Retorna status inicial
-        return BatchProcessingResult(
-            job_id=job_id,
-            total_emails=len(batch.emails),
-            processed=0,
-            succeeded=0,
-            failed=0,
-            status=ProcessingStatus.QUEUED,
-            results=[],
-            started_at=datetime.utcnow()
-        )
+        return {
+            "job_id": job_id,
+            "total_emails": len(batch.emails),
+            "status": "queued",
+            "message": "Batch processing started in background"
+        }
     
     # Processamento síncrono
-    logger.info(f"Processando lote de {len(batch.emails)} e-mails")
+    logger.info(f"Processing batch of {len(batch.emails)} emails")
     
-    results = await gemini_service.process_batch(
+    results = await processing_service.process_batch(
         emails=batch.emails,
-        system_prompt=system_prompt,
         max_concurrent=settings.MAX_CONCURRENT_REQUESTS
     )
     
     # Conta sucessos e falhas
-    succeeded = sum(1 for r in results if r.status == ProcessingStatus.COMPLETED)
-    failed = sum(1 for r in results if r.status == ProcessingStatus.FAILED)
+    succeeded = sum(1 for r in results if not r.error)
+    failed = sum(1 for r in results if r.error)
     
-    return BatchProcessingResult(
-        job_id=job_id,
-        total_emails=len(batch.emails),
-        processed=len(results),
-        succeeded=succeeded,
-        failed=failed,
-        status=ProcessingStatus.COMPLETED,
-        results=results,
-        started_at=datetime.utcnow(),
-        completed_at=datetime.utcnow()
-    )
+    return {
+        "job_id": job_id,
+        "total_emails": len(batch.emails),
+        "processed": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "status": "completed",
+        "results": [r.model_dump() for r in results]
+    }
 
 
 @router.get(
@@ -164,30 +165,41 @@ async def get_email_status(
 
 @router.post(
     "/test-connection",
-    summary="Testar conexão com Gemini",
-    description="Verifica se a conexão com Google Gemini está funcionando"
+    summary="Testar conexões",
+    description="Verifica conexões com Gemini e MySQL"
 )
-async def test_gemini_connection(
+async def test_connections(
     api_key: str = Depends(verify_api_key)
 ) -> Dict[str, Any]:
     """
-    Testa conexão com Gemini API
+    Testa conexões com Gemini e MySQL
     """
     try:
-        is_connected = await gemini_service.test_connection()
+        from ...services.gemini_service import gemini_service
+        from ...services.mysql_service import mysql_service
+        
+        gemini_connected = await gemini_service.test_connection()
+        mysql_connected = await mysql_service.test_connection()
         
         return {
-            "connected": is_connected,
-            "model": settings.GEMINI_MODEL,
-            "message": "Conexão bem-sucedida" if is_connected else "Falha na conexão"
+            "gemini": {
+                "connected": gemini_connected,
+                "model": settings.GEMINI_MODEL
+            },
+            "mysql": {
+                "connected": mysql_connected,
+                "database": settings.MYSQL_DATABASE if mysql_connected else None
+            },
+            "status": "ok" if (gemini_connected and mysql_connected) else "partial",
+            "message": "All connections working" if (gemini_connected and mysql_connected) else "Some connections failed"
         }
         
     except Exception as e:
-        logger.error(f"Erro ao testar conexão: {e}")
+        logger.error(f"Error testing connections: {e}")
         return {
-            "connected": False,
+            "status": "error",
             "error": str(e),
-            "message": "Erro ao testar conexão com Gemini"
+            "message": "Error testing connections"
         }
 
 
@@ -195,19 +207,18 @@ async def test_gemini_connection(
 async def _process_batch_background(
     job_id: str,
     emails: List[EmailInput],
-    system_prompt: Optional[str],
+    custom_prompt: Optional[str],
     webhook_url: Optional[str]
 ):
     """
     Processa lote em background
     """
-    logger.info(f"Iniciando processamento em background do job {job_id}")
+    logger.info(f"Starting background processing for job {job_id}")
     
     try:
         # Processa e-mails
-        results = await gemini_service.process_batch(
-            emails=emails,
-            system_prompt=system_prompt
+        results = await processing_service.process_batch(
+            emails=emails
         )
         
         # Se webhook fornecido, envia resultado

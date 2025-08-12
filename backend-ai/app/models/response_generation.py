@@ -7,9 +7,6 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
-from .classification import ClassificationType
-from .tracking import TrackingData
-
 
 class ResponseTone(str, Enum):
     """Tom da resposta"""
@@ -31,7 +28,7 @@ class ResponseGenerationInput(BaseModel):
     classification: Dict[str, Any] = Field(..., description="Resultado da classificação")
     
     # Dados de rastreamento (opcional)
-    tracking_data: Optional[TrackingData] = Field(None, description="Dados de rastreamento se disponível")
+    tracking_data: Optional[Dict[str, Any]] = Field(None, description="Dados de rastreamento se disponível")
     
     # Opções de personalização
     custom_tone: Optional[ResponseTone] = Field(None, description="Tom customizado para resposta")
@@ -54,9 +51,13 @@ class ResponseGenerationInput(BaseModel):
                     "urgency": "high"
                 },
                 "tracking_data": {
-                    "order_id": "PED-2025-001",
-                    "tracking_code": "BR123456789BR",
-                    "status": "EM_TRANSITO"
+                    "found": True,
+                    "orders": [{
+                        "order_id": "38495799",
+                        "tracking_code": "BR123456789BR",
+                        "purchase_date": "2025-08-08T11:27:00",
+                        "status": "EM_TRANSITO"
+                    }]
                 }
             }
         }

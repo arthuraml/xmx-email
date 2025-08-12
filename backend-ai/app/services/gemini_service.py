@@ -6,7 +6,7 @@ import time
 from typing import Dict, Any, Optional, List
 from loguru import logger
 
-from ..core.gemini import analyze_email_with_gemini, test_gemini_connection, get_system_prompt
+from ..core.gemini import analyze_email_with_gemini, test_gemini_connection
 from ..core.config import settings
 from ..models.email import EmailInput
 from ..models.response import (
@@ -63,9 +63,13 @@ class GeminiService:
             if system_prompt:
                 prompt = system_prompt
             else:
-                # Carrega o prompt do arquivo se ainda não foi carregado
+                # Usa um prompt padrão básico se não fornecido
                 if self.default_prompt is None:
-                    self.default_prompt = get_system_prompt()
+                    self.default_prompt = """
+                    Você é um assistente de análise de e-mails.
+                    Analise o e-mail e determine se deve ser respondido ou ignorado.
+                    Retorne sua análise em formato JSON.
+                    """
                 prompt = self.default_prompt
             
             # Analisa com Gemini

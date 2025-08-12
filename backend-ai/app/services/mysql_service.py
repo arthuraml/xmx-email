@@ -63,35 +63,20 @@ class MySQLService:
     
     async def _ensure_table_exists(self):
         """
-        Garante que a tabela de rastreamento existe
+        Verifica se a tabela orders existe (não cria mais tabela nova)
         """
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cursor:
+                # Apenas verifica se a tabela orders existe
                 await cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS tracking_orders (
-                        id INT PRIMARY KEY AUTO_INCREMENT,
-                        customer_email VARCHAR(255) NOT NULL,
-                        order_id VARCHAR(100) NOT NULL,
-                        tracking_code VARCHAR(100),
-                        carrier VARCHAR(50),
-                        status VARCHAR(50),
-                        last_location VARCHAR(255),
-                        last_update DATETIME,
-                        estimated_delivery DATETIME,
-                        delivered_at DATETIME,
-                        recipient_name VARCHAR(255),
-                        recipient_document VARCHAR(50),
-                        delivery_address TEXT,
-                        tracking_json TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        INDEX idx_email (customer_email),
-                        INDEX idx_order (order_id),
-                        INDEX idx_tracking (tracking_code),
-                        INDEX idx_status (status)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-                """)
-                logger.info("Tracking orders table verified/created")
+                    SELECT COUNT(*) FROM information_schema.tables 
+                    WHERE table_schema = %s AND table_name = 'orders'
+                """, (settings.MYSQL_DATABASE,))
+                result = await cursor.fetchone()
+                if result and result['COUNT(*)'] > 0:
+                    logger.info("Orders table exists and is ready")
+                else:
+                    logger.warning("Orders table not found in database")
     
     async def find_tracking_by_email(
         self,
@@ -99,7 +84,7 @@ class MySQLService:
         order_id: Optional[str] = None
     ) -> Optional[TrackingData]:
         """
-        Busca dados de rastreamento pelo e-mail do cliente
+        Busca dados de rastreamento pelo e-mail do cliente na tabela orders
         
         Args:
             email: E-mail do cliente
@@ -114,20 +99,31 @@ class MySQLService:
         try:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # Prepara query
+                    # Prepara query para tabela orders
                     if order_id:
                         query = """
-                            SELECT * FROM tracking_orders 
-                            WHERE customer_email = %s AND order_id = %s
-                            ORDER BY last_update DESC
+                            SELECT id, order_id_cartpanda, `order`, email_client, 
+                                   tracking, purchase_date, status_id, financial_status,
+                                   payment_status, country, note
+                            FROM orders 
+                            WHERE email_client = %s 
+                            AND (order_id_cartpanda = %s OR `order` = %s)
+                            AND tracking IS NOT NULL 
+                            AND tracking != ''
+                            ORDER BY purchase_date DESC
                             LIMIT 1
                         """
-                        params = (email, order_id)
+                        params = (email, order_id, order_id)
                     else:
                         query = """
-                            SELECT * FROM tracking_orders 
-                            WHERE customer_email = %s
-                            ORDER BY last_update DESC
+                            SELECT id, order_id_cartpanda, `order`, email_client, 
+                                   tracking, purchase_date, status_id, financial_status,
+                                   payment_status, country, note
+                            FROM orders 
+                            WHERE email_client = %s
+                            AND tracking IS NOT NULL 
+                            AND tracking != ''
+                            ORDER BY purchase_date DESC
                             LIMIT 1
                         """
                         params = (email,)
@@ -136,7 +132,7 @@ class MySQLService:
                     result = await cursor.fetchone()
                     
                     if result:
-                        return self._parse_tracking_data(result)
+                        return self._parse_tracking_data_from_orders(result)
                     
                     return None
                     
@@ -147,14 +143,14 @@ class MySQLService:
     async def find_all_trackings_by_email(
         self,
         email: str,
-        limit: int = 10
+        limit: int = 5
     ) -> List[TrackingData]:
         """
-        Busca todos os rastreamentos de um cliente
+        Busca todos os rastreamentos de um cliente na tabela orders
         
         Args:
             email: E-mail do cliente
-            limit: Limite de resultados
+            limit: Limite de resultados (padrão: 5)
             
         Returns:
             Lista de TrackingData
@@ -166,16 +162,21 @@ class MySQLService:
             async with self.pool.acquire() as conn:
                 async with conn.cursor() as cursor:
                     query = """
-                        SELECT * FROM tracking_orders 
-                        WHERE customer_email = %s
-                        ORDER BY last_update DESC
+                        SELECT id, order_id_cartpanda, `order`, email_client, 
+                               tracking, purchase_date, status_id, financial_status,
+                               payment_status, country, note
+                        FROM orders 
+                        WHERE email_client = %s
+                        AND tracking IS NOT NULL 
+                        AND tracking != ''
+                        ORDER BY purchase_date DESC
                         LIMIT %s
                     """
                     
                     await cursor.execute(query, (email, limit))
                     results = await cursor.fetchall()
                     
-                    return [self._parse_tracking_data(row) for row in results]
+                    return [self._parse_tracking_data_from_orders(row) for row in results]
                     
         except Exception as e:
             logger.error(f"Error querying multiple trackings: {e}")
@@ -186,60 +187,80 @@ class MySQLService:
         tracking_data: Dict[str, Any]
     ) -> bool:
         """
-        Insere dados de rastreamento no banco (para testes)
+        Método deprecado - mantido apenas para compatibilidade
+        A tabela orders já contém os dados de rastreamento
         
         Args:
             tracking_data: Dados de rastreamento
             
         Returns:
-            True se inserido com sucesso
+            False sempre (não insere mais dados)
         """
-        if not self.pool:
-            await self.initialize()
+        logger.warning("insert_tracking_data is deprecated - orders table already contains tracking data")
+        return False
+    
+    def _parse_tracking_data_from_orders(self, row: Dict[str, Any]) -> TrackingData:
+        """
+        Converte resultado da tabela orders em TrackingData
         
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    query = """
-                        INSERT INTO tracking_orders (
-                            customer_email, order_id, tracking_code, carrier,
-                            status, last_location, last_update, estimated_delivery,
-                            recipient_name, delivery_address, tracking_json
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            status = VALUES(status),
-                            last_location = VALUES(last_location),
-                            last_update = VALUES(last_update),
-                            tracking_json = VALUES(tracking_json)
-                    """
-                    
-                    # Prepara dados
-                    tracking_json = json.dumps(
-                        tracking_data.get('history', []),
-                        default=str
-                    )
-                    
-                    params = (
-                        tracking_data.get('customer_email'),
-                        tracking_data.get('order_id'),
-                        tracking_data.get('tracking_code'),
-                        tracking_data.get('carrier'),
-                        tracking_data.get('status'),
-                        tracking_data.get('last_location'),
-                        tracking_data.get('last_update'),
-                        tracking_data.get('estimated_delivery'),
-                        tracking_data.get('recipient_name'),
-                        tracking_data.get('delivery_address'),
-                        tracking_json
-                    )
-                    
-                    await cursor.execute(query, params)
-                    logger.info(f"Tracking data inserted/updated for order {tracking_data.get('order_id')}")
-                    return True
-                    
-        except Exception as e:
-            logger.error(f"Error inserting tracking data: {e}")
-            return False
+        Args:
+            row: Linha do resultado MySQL da tabela orders
+            
+        Returns:
+            TrackingData object
+        """
+        # Determina o status baseado nos campos disponíveis
+        status = TrackingStatus.EM_TRANSITO  # Status padrão
+        if row.get('status_id'):
+            status_map = {
+                'delivered': TrackingStatus.ENTREGUE,
+                'shipped': TrackingStatus.EM_TRANSITO,
+                'processing': TrackingStatus.POSTADO,
+                'pending': TrackingStatus.POSTADO
+            }
+            status_id_lower = str(row['status_id']).lower()
+            for key, value in status_map.items():
+                if key in status_id_lower:
+                    status = value
+                    break
+        
+        # Determina a transportadora baseado no formato do código de rastreamento
+        carrier = TrackingCarrier.OUTRO
+        tracking_code = row.get('tracking', '')
+        if tracking_code:
+            if tracking_code.startswith('BR') and tracking_code.endswith('BR'):
+                carrier = TrackingCarrier.CORREIOS
+            elif tracking_code.startswith('94001'):
+                carrier = TrackingCarrier.OUTRO  # USPS
+            elif len(tracking_code) == 12 and tracking_code.isdigit():
+                carrier = TrackingCarrier.MERCADO_ENVIOS
+        
+        # Cria histórico simplificado baseado na data de compra
+        history = []
+        if row.get('purchase_date'):
+            history.append(TrackingHistoryItem(
+                date=row['purchase_date'],
+                status='Pedido processado',
+                location=row.get('country', 'Brasil'),
+                description=f"Pedido {row.get('order_id_cartpanda', '')} processado"
+            ))
+        
+        return TrackingData(
+            order_id=row.get('order_id_cartpanda', row.get('order', '')),
+            tracking_code=tracking_code,
+            carrier=carrier,
+            status=status,
+            last_update=row.get('purchase_date', datetime.now()),
+            last_location=row.get('country', 'Brasil'),
+            estimated_delivery=None,  # Não disponível na tabela orders
+            delivered_at=None,
+            history=history,
+            recipient_name=None,  # Não disponível na tabela orders
+            recipient_document=None,
+            delivery_address=None,
+            source='mysql_orders',
+            confidence=1.0
+        )
     
     def _parse_tracking_data(self, row: Dict[str, Any]) -> TrackingData:
         """

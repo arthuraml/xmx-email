@@ -13,9 +13,7 @@ from loguru import logger
 from app.core.config import settings
 from app.api.v1 import (
     emails_router, 
-    health_router, 
-    classification_router, 
-    tracking_router,
+    health_router,
     response_generation_router
 )
 from app.db.supabase import init_supabase
@@ -103,17 +101,9 @@ app.include_router(
     tags=["emails"]
 )
 
-app.include_router(
-    classification_router,
-    prefix="/api/v1/classification",
-    tags=["classification"]
-)
-
-app.include_router(
-    tracking_router,
-    prefix="/api/v1/tracking",
-    tags=["tracking"]
-)
+# Endpoints removidos (integrados ao processamento):
+# - /api/v1/classification/* (agora parte de /emails/process)
+# - /api/v1/tracking/* (agora parte de /emails/process)
 
 app.include_router(
     response_generation_router,

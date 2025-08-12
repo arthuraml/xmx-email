@@ -81,9 +81,6 @@ class Settings(BaseSettings):
     ENABLE_METRICS: bool = True
     METRICS_PORT: int = 9090
     
-    # System Prompt Configuration
-    SYSTEM_PROMPT_FILE: str = "system_prompt.txt"
-    
     model_config = SettingsConfigDict(
         env_file="../.env",  # Busca o .env na raiz do projeto
         env_file_encoding="utf-8",

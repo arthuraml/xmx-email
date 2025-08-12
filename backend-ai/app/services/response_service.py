@@ -87,8 +87,9 @@ class ResponseService:
             # Determina tipo de resposta
             is_support = request.classification.get('is_support', False)
             is_tracking = request.classification.get('is_tracking', False)
+            has_tracking_data = request.tracking_data and request.tracking_data.get('found', False)
             
-            if is_support and is_tracking and request.tracking_data:
+            if is_support and is_tracking and has_tracking_data:
                 response_type = 'combined'
                 system_prompt = self._load_prompt('combined')
             else:
@@ -228,27 +229,28 @@ class ResponseService:
         
         # Adiciona dados de rastreamento se disponível
         if request.tracking_data and response_type == 'combined':
-            tracking = request.tracking_data
-            prompt += f"""
+            tracking_data = request.tracking_data
+            
+            # Verifica se tem dados de rastreamento
+            if tracking_data.get('found') and tracking_data.get('orders'):
+                prompt += "\n\n        DADOS DE RASTREAMENTO DISPONÍVEIS:"
+                
+                # Processa cada pedido encontrado
+                for order in tracking_data['orders'][:3]:  # Limita a 3 pedidos
+                    prompt += f"""
         
-        DADOS DE RASTREAMENTO DISPONÍVEIS:
-        - Pedido: {tracking.order_id}
-        - Código: {tracking.tracking_code}
-        - Transportadora: {tracking.carrier.value if hasattr(tracking.carrier, 'value') else tracking.carrier}
-        - Status: {tracking.status.value if hasattr(tracking.status, 'value') else tracking.status}
-        - Última localização: {tracking.last_location or 'Não disponível'}
-        - Última atualização: {tracking.last_update.strftime('%d/%m/%Y %H:%M') if tracking.last_update else 'Não disponível'}
+        PEDIDO {order.get('order_id', 'N/A')}:
+        - Código de rastreamento: {order.get('tracking_code', 'Não disponível')}
+        - Data da compra: {order.get('purchase_date', 'Não disponível')}
+        - Status: {order.get('status', 'Em processamento')}
         """
-            
-            if tracking.estimated_delivery:
-                prompt += f"\n        - Previsão de entrega: {tracking.estimated_delivery.strftime('%d/%m/%Y')}"
-            
-            if tracking.history:
-                prompt += "\n        - Histórico de movimentação:"
-                for item in tracking.history[-3:]:  # Últimas 3 movimentações
-                    prompt += f"\n          • {item.date.strftime('%d/%m %H:%M')}: {item.status}"
-                    if item.location:
-                        prompt += f" - {item.location}"
+            else:
+                prompt += """
+        
+        RASTREAMENTO:
+        Não foram encontrados pedidos com rastreamento para este e-mail.
+        Orientação: Solicitar ao cliente o número do pedido ou verificar o e-mail de cadastro.
+        """
         
         elif response_type == 'combined' and not request.tracking_data:
             prompt += """
