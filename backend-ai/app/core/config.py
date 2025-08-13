@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     # Google Gemini Configuration
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-2.5-flash"
-    GEMINI_TEMPERATURE: float = 0.3
-    GEMINI_MAX_OUTPUT_TOKENS: int = 1000
+    GEMINI_TEMPERATURE: float = 0.0  # Most deterministic setting
+    GEMINI_MAX_OUTPUT_TOKENS: int = 65000  # Máximo suportado pelo modelo
     GEMINI_TOP_P: float = 0.9
     
     # Supabase Configuration

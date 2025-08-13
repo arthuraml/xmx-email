@@ -16,7 +16,11 @@ import {
   Package, 
   HelpCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  DollarSign,
+  TrendingUp,
+  BarChart3,
+  Calendar
 } from "lucide-react"
 
 interface ProcessedEmail {
@@ -52,6 +56,12 @@ interface ProcessedEmail {
   response_approved?: boolean
   response_sent?: boolean
   processed_at: string
+  
+  // Costs
+  cost_total_brl?: number
+  cost_total_usd?: number
+  exchange_rate?: number
+  total_tokens?: number
 }
 
 export default function LLMPage() {
@@ -62,6 +72,9 @@ export default function LLMPage() {
   const [editedBody, setEditedBody] = useState('')
   const [activeTab, setActiveTab] = useState('all')
   const [processing, setProcessing] = useState(false)
+  const [costSummary, setCostSummary] = useState<any>(null)
+  const [dailyCosts, setDailyCosts] = useState<any>(null)
+  const [mainTab, setMainTab] = useState('emails')
 
   // Fetch processed emails
   const fetchProcessedEmails = async () => {
@@ -89,9 +102,44 @@ export default function LLMPage() {
       setLoading(false)
     }
   }
+  
+  // Fetch cost analytics
+  const fetchCostAnalytics = async () => {
+    try {
+      // Fetch cost summary
+      const summaryResponse = await fetch('/api/llm/analytics/costs/summary?period=month', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (summaryResponse.ok) {
+        const summaryData = await summaryResponse.json()
+        setCostSummary(summaryData)
+      }
+      
+      // Fetch daily costs
+      const dailyResponse = await fetch('/api/llm/analytics/costs/daily?days=7', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (dailyResponse.ok) {
+        const dailyData = await dailyResponse.json()
+        setDailyCosts(dailyData)
+      }
+      
+    } catch (error) {
+      console.error('Error fetching cost analytics:', error)
+    }
+  }
 
   useEffect(() => {
     fetchProcessedEmails()
+    fetchCostAnalytics()
   }, [])
 
   // Filter emails based on tab
@@ -236,8 +284,19 @@ export default function LLMPage() {
         </CardHeader>
       </Card>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* Main Tabs */}
+      <Tabs value={mainTab} onValueChange={setMainTab}>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="emails">E-mails Processados</TabsTrigger>
+          <TabsTrigger value="analytics">
+            <DollarSign className="h-4 w-4 mr-2" />
+            Custos e Análise
+          </TabsTrigger>
+        </TabsList>
+        
+        {/* Emails Tab */}
+        <TabsContent value="emails">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="all">
             Todos ({emails.length})
@@ -318,6 +377,11 @@ export default function LLMPage() {
                               {email.confidence && (
                                 <Badge variant="secondary" className="text-xs">
                                   {(email.confidence * 100).toFixed(0)}%
+                                </Badge>
+                              )}
+                              {email.cost_total_brl && (
+                                <Badge variant="outline" className="text-xs">
+                                  R$ {email.cost_total_brl.toFixed(2)}
                                 </Badge>
                               )}
                             </div>
@@ -469,8 +533,148 @@ export default function LLMPage() {
               </Card>
             )}
           </div>
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+      </TabsContent>
+      
+      {/* Analytics Tab */}
+      <TabsContent value="analytics" className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Cost Summary Cards */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">
+                Custo Total (Mês)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                R$ {costSummary?.costs?.combined?.total_brl?.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {costSummary?.costs?.combined?.total_operations || 0} operações
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">
+                Custo Médio por E-mail
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                R$ {costSummary?.averages?.cost_per_email_brl?.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {costSummary?.averages?.tokens_per_email || 0} tokens/email
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">
+                Taxa de Câmbio
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                R$ {costSummary?.current_exchange_rate?.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                1 USD = R$ {costSummary?.current_exchange_rate?.toFixed(2) || '0.00'}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Daily Costs Chart */}
+        {dailyCosts && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                <BarChart3 className="h-5 w-5 inline mr-2" />
+                Custos Diários (Últimos 7 dias)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {dailyCosts.daily?.map((day: any) => (
+                  <div key={day.date} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">
+                        {new Date(day.date).toLocaleDateString('pt-BR', { 
+                          weekday: 'short', 
+                          day: '2-digit', 
+                          month: 'short' 
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-muted-foreground">
+                        {day.count} emails
+                      </span>
+                      <span className="font-medium">
+                        R$ {day.cost_brl.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                <div className="border-t pt-2 mt-2 flex justify-between">
+                  <span className="font-medium">Total</span>
+                  <span className="font-bold">
+                    R$ {dailyCosts.totals?.cost_brl?.toFixed(2) || '0.00'}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Token Usage */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              <TrendingUp className="h-5 w-5 inline mr-2" />
+              Uso de Tokens
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-sm font-medium">Entrada</p>
+                <p className="text-2xl font-bold">
+                  {costSummary?.tokens?.input?.toLocaleString() || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Saída</p>
+                <p className="text-2xl font-bold">
+                  {costSummary?.tokens?.output?.toLocaleString() || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Pensamento</p>
+                <p className="text-2xl font-bold">
+                  {costSummary?.tokens?.thinking?.toLocaleString() || 0}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Total de Tokens</span>
+                <span className="font-bold">
+                  {costSummary?.tokens?.total?.toLocaleString() || 0}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
     </div>
   )
 }

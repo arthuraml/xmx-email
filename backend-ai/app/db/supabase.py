@@ -62,14 +62,19 @@ async def test_supabase_connection() -> bool:
 
 
 # Funções auxiliares para operações comuns
-async def save_processed_email(email_data: dict) -> dict:
+def save_processed_email(email_data: dict) -> dict:
     """
     Salva um e-mail processado no banco
+    Usa UPSERT para permitir reprocessamento de emails existentes
     """
     try:
         client = get_supabase()
         
-        result = await client.table('processed_emails').insert(email_data).execute()
+        # Usa upsert com on_conflict no email_id para atualizar se já existir
+        result = client.table('processed_emails').upsert(
+            email_data,
+            on_conflict='email_id'
+        ).execute()
         
         return result.data[0] if result.data else None
         
@@ -78,14 +83,14 @@ async def save_processed_email(email_data: dict) -> dict:
         raise
 
 
-async def get_processed_email(email_id: str) -> Optional[dict]:
+def get_processed_email(email_id: str) -> Optional[dict]:
     """
     Busca um e-mail processado pelo ID
     """
     try:
         client = get_supabase()
         
-        result = await client.table('processed_emails').select('*').eq('email_id', email_id).single().execute()
+        result = client.table('processed_emails').select('*').eq('email_id', email_id).single().execute()
         
         return result.data
         

@@ -14,7 +14,8 @@ from app.core.config import settings
 from app.api.v1 import (
     emails_router, 
     health_router,
-    response_generation_router
+    response_generation_router,
+    analytics_router
 )
 from app.db.supabase import init_supabase
 from app.core.gemini import init_gemini_client
@@ -109,6 +110,12 @@ app.include_router(
     response_generation_router,
     prefix="/api/v1/response",
     tags=["response"]
+)
+
+app.include_router(
+    analytics_router,
+    prefix="/api/v1/analytics",
+    tags=["analytics", "costs"]
 )
 
 # Root endpoint

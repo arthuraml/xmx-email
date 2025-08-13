@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const { createClient } = await import('@/utils/supabase/server')
     const supabase = await createClient()
     
-    // Fetch processed emails with their responses
+    // Fetch processed emails with their responses and costs
     const { data: processedEmails, error } = await supabase
       .from('processed_emails')
       .select(`
@@ -19,13 +19,15 @@ export async function GET(request: NextRequest) {
           tone,
           approved,
           sent,
-          confidence
+          confidence,
+          cost_total_brl,
+          cost_total_usd
         ),
         tracking_requests (
           order_id,
           tracking_code,
           status,
-          last_location
+          tracking_details
         )
       `)
       .order('received_at', { ascending: false })
@@ -67,8 +69,14 @@ export async function GET(request: NextRequest) {
         order_id: email.tracking_requests[0].order_id,
         tracking_code: email.tracking_requests[0].tracking_code,
         status: email.tracking_requests[0].status,
-        last_location: email.tracking_requests[0].last_location
+        last_location: email.tracking_requests[0].tracking_details?.last_location || null
       } : undefined,
+      
+      // Costs
+      cost_total_brl: email.cost_total_brl || email.llm_responses?.[0]?.cost_total_brl || 0,
+      cost_total_usd: email.cost_total_usd || email.llm_responses?.[0]?.cost_total_usd || 0,
+      exchange_rate: email.exchange_rate || 0,
+      total_tokens: email.total_tokens || 0,
       
       // Timestamps
       processed_at: email.processed_at

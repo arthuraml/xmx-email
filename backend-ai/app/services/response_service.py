@@ -17,8 +17,11 @@ from ..models.response_generation import (
     BatchResponseGenerationResult
 )
 from ..models.classification import ClassificationType
+from ..models.processing import TokenUsage
 from ..db.supabase import get_supabase
+from .cost_service import cost_service
 from google import genai
+from google.genai import types
 
 
 class ResponseService:
@@ -103,19 +106,22 @@ class ResponseService:
             client = get_gemini_client()
             
             generation_config = {
-                "temperature": 0.7,  # Mais criativo para respostas
+                "temperature": 0.3,  # Balanceado para respostas (um pouco de criatividade)
                 "top_p": 0.95,
-                "max_output_tokens": 1500,
+                "max_output_tokens": 65000,  # Máximo para respostas completas
                 "response_mime_type": "application/json"
             }
             
             response = client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=[
-                    {"role": "system", "parts": [{"text": system_prompt}]},
                     {"role": "user", "parts": [{"text": user_prompt}]}
                 ],
-                config=genai.types.GenerateContentConfig(
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,  # System instruction correta
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=-1  # Dynamic thinking mode
+                    ),
                     **generation_config,
                     safety_settings=[
                         {
@@ -138,8 +144,35 @@ class ResponseService:
                 )
             )
             
-            # Parse resposta
-            result_text = response.text
+            # Parse resposta com tratamento seguro
+            result_text = None
+            
+            # Primeiro tenta response.text
+            if hasattr(response, 'text') and response.text:
+                result_text = response.text
+            # Depois tenta via candidates
+            elif hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    result_text = part.text
+                                    break
+                        elif hasattr(candidate.content, 'text') and candidate.content.text:
+                            result_text = candidate.content.text
+                    if result_text:
+                        break
+            
+            if not result_text:
+                # Verifica se foi truncado por MAX_TOKENS
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = str(response.candidates[0].finish_reason)
+                    if 'MAX_TOKENS' in finish_reason:
+                        logger.error(f"Response generation truncated due to MAX_TOKENS limit")
+                        raise ValueError("Response truncated - increase max_output_tokens")
+                logger.error("No text found in response generation")
+                raise ValueError("No text content in Gemini response")
             response_data = json.loads(result_text)
             
             # Calcula tempo de processamento
@@ -147,6 +180,20 @@ class ResponseService:
             
             # Captura metadados de tokens
             token_metadata = self._extract_token_metadata(response)
+            
+            # Calcula custos se temos dados de tokens
+            costs = None
+            if token_metadata.get('total_tokens', 0) > 0:
+                token_usage = TokenUsage(
+                    input_tokens=token_metadata.get('prompt_tokens', 0),
+                    output_tokens=token_metadata.get('output_tokens', 0),
+                    thought_tokens=token_metadata.get('thought_tokens', 0),
+                    total_tokens=token_metadata.get('total_tokens', 0)
+                )
+                costs = await cost_service.calculate_costs(
+                    token_usage=token_usage,
+                    model_name="gemini-2.5-flash"
+                )
             
             # Cria resposta
             generated = GeneratedResponse(
@@ -171,7 +218,7 @@ class ResponseService:
             
             # Salva no banco se solicitado
             if save_to_db:
-                await self._save_to_database(generated, request)
+                await self._save_to_database(generated, request, costs)
                 generated.saved_to_db = True
             
             logger.info(
@@ -184,21 +231,8 @@ class ResponseService:
             
         except Exception as e:
             logger.error(f"Error generating response for email {request.email_id}: {e}")
-            
-            # Retorna resposta de erro
-            return GeneratedResponse(
-                email_id=request.email_id,
-                suggested_subject="Erro na geração",
-                suggested_body="Desculpe, houve um erro ao gerar a resposta.",
-                tone=ResponseTone.PROFESSIONAL,
-                addresses_support=False,
-                addresses_tracking=False,
-                response_type="error",
-                confidence=0.0,
-                processing_time_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
-                saved_to_db=False
-            )
+            # Re-raise the exception to let the API endpoint handle it with proper HTTP status
+            raise
     
     def _build_user_prompt(
         self,
@@ -277,6 +311,7 @@ class ResponseService:
         metadata = {
             "prompt_tokens": 0,
             "output_tokens": 0,
+            "thought_tokens": 0,
             "total_tokens": 0
         }
         
@@ -289,17 +324,26 @@ class ResponseService:
             if hasattr(usage, 'candidates_token_count'):
                 metadata["output_tokens"] = usage.candidates_token_count
             
+            # Captura thinking tokens se disponível
+            if hasattr(usage, 'thought_token_count'):
+                metadata["thought_tokens"] = usage.thought_token_count
+            
             if hasattr(usage, 'total_token_count'):
                 metadata["total_tokens"] = usage.total_token_count
             else:
-                metadata["total_tokens"] = metadata["prompt_tokens"] + metadata["output_tokens"]
+                metadata["total_tokens"] = (
+                    metadata["prompt_tokens"] + 
+                    metadata["output_tokens"] + 
+                    metadata["thought_tokens"]
+                )
         
         return metadata
     
     async def _save_to_database(
         self,
         response: GeneratedResponse,
-        request: ResponseGenerationInput
+        request: ResponseGenerationInput,
+        costs: Optional[Dict[str, Any]] = None
     ):
         """
         Salva resposta gerada no Supabase
@@ -321,11 +365,22 @@ class ResponseService:
                 "reason": response.internal_notes
             }
             
-            # Insere ou atualiza
-            result = supabase.table("llm_responses").upsert(
-                data,
-                on_conflict="email_id"
-            ).execute()
+            # Adiciona custos se disponíveis
+            if costs:
+                data.update({
+                    "cost_input_usd": costs["cost_input_usd"],
+                    "cost_output_usd": costs["cost_output_usd"],
+                    "cost_thinking_usd": costs["cost_thinking_usd"],
+                    "cost_total_usd": costs["cost_total_usd"],
+                    "cost_input_brl": costs["cost_input_brl"],
+                    "cost_output_brl": costs["cost_output_brl"],
+                    "cost_thinking_brl": costs["cost_thinking_brl"],
+                    "cost_total_brl": costs["cost_total_brl"],
+                    "exchange_rate": costs["exchange_rate"]
+                })
+            
+            # Insere nova resposta (permite múltiplas respostas por email para auditoria)
+            result = supabase.table("llm_responses").insert(data).execute()
             
             logger.info(f"Response saved to database for email {response.email_id}")
             

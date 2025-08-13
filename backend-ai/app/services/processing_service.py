@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List
 from loguru import logger
 
 from ..core.gemini import analyze_email_with_gemini
+from ..db.supabase import save_processed_email
 from ..models.email import EmailInput
 from ..models.processing import (
     EmailClassification,
@@ -18,6 +19,7 @@ from ..models.processing import (
     EmailProcessingResponse
 )
 from .mysql_service import mysql_service
+from .cost_service import cost_service
 
 
 class ProcessingService:
@@ -154,6 +156,83 @@ Responda APENAS em formato JSON válido:
             # Calcula tempo total
             processing_time = time.time() - start_time
             
+            # Calcula custos do processamento
+            costs = await cost_service.calculate_costs(
+                token_usage=tokens,
+                model_name="gemini-2.5-flash"
+            )
+            
+            # Salva email processado no banco de dados
+            email_record = {
+                "email_id": email.email_id,
+                "from_address": email.from_address,
+                "to_address": email.to_address,
+                "subject": email.subject,
+                "body": email.body,
+                "thread_id": email.thread_id,
+                "received_at": email.received_at.isoformat() if email.received_at else None,
+                "is_support": classification.is_support,
+                "is_tracking": classification.is_tracking,
+                "classification_confidence": float(classification.confidence),
+                "email_type": classification.email_type,
+                "urgency": classification.urgency,
+                "processing_time_ms": int(processing_time * 1000),
+                "prompt_tokens": tokens.input_tokens,
+                "output_tokens": tokens.output_tokens,
+                "thought_tokens": tokens.thought_tokens,
+                "total_tokens": tokens.total_tokens,
+                # Adiciona campos de custo
+                "cost_input_usd": costs["cost_input_usd"],
+                "cost_output_usd": costs["cost_output_usd"],
+                "cost_thinking_usd": costs["cost_thinking_usd"],
+                "cost_total_usd": costs["cost_total_usd"],
+                "cost_input_brl": costs["cost_input_brl"],
+                "cost_output_brl": costs["cost_output_brl"],
+                "cost_thinking_brl": costs["cost_thinking_brl"],
+                "cost_total_brl": costs["cost_total_brl"],
+                "exchange_rate": costs["exchange_rate"],
+                "status": "processed"
+            }
+            
+            try:
+                save_processed_email(email_record)
+                logger.info(f"Email {email.email_id} saved to processed_emails table")
+                
+                # Se foi rastreamento, salva também na tabela tracking_requests
+                if classification.is_tracking and tracking_result:
+                    from ..db.supabase import get_supabase
+                    supabase = get_supabase()
+                    
+                    tracking_record = {
+                        "email_id": email.email_id,
+                        "sender_email": email.from_address,
+                        "order_id": classification.extracted_order_id,
+                        "mysql_queried": tracking_result.found,
+                        "query_success": tracking_result.found,
+                        "tracking_details": {
+                            "found": tracking_result.found,
+                            "orders": [
+                                {
+                                    "order_id": order.order_id,
+                                    "tracking_code": order.tracking_code,
+                                    "status": order.status,
+                                    "purchase_date": order.purchase_date.isoformat() if order.purchase_date else None,
+                                    "customer_email": order.customer_email
+                                } for order in tracking_result.orders
+                            ] if tracking_result.orders else []
+                        }
+                    }
+                    
+                    try:
+                        supabase.table("tracking_requests").insert(tracking_record).execute()
+                        logger.info(f"Tracking request saved for email {email.email_id}")
+                    except Exception as tracking_error:
+                        logger.error(f"Failed to save tracking request: {tracking_error}")
+                        
+            except Exception as db_error:
+                logger.error(f"Failed to save email {email.email_id} to database: {db_error}")
+                # Continue processing even if save fails (non-critical)
+            
             # Retorna resposta unificada
             return EmailProcessingResponse(
                 email_id=email.email_id,
@@ -165,22 +244,8 @@ Responda APENAS em formato JSON válido:
             
         except Exception as e:
             logger.error(f"Error processing email {email.email_id}: {e}")
-            
-            # Retorna resposta de erro
-            return EmailProcessingResponse(
-                email_id=email.email_id,
-                classification=EmailClassification(
-                    is_support=False,
-                    is_tracking=False,
-                    urgency="low",
-                    confidence=0.0,
-                    email_type="other"
-                ),
-                tracking_data=None,
-                tokens=TokenUsage(),
-                processing_time=time.time() - start_time,
-                error=str(e)
-            )
+            # Re-raise the exception to let the API handle it properly
+            raise
     
     def _parse_classification(self, gemini_response: Dict[str, Any]) -> EmailClassification:
         """

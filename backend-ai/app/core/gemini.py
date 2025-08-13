@@ -3,6 +3,7 @@ Configuração e cliente do Google Gemini
 """
 
 from google import genai
+from google.genai import types
 from typing import Optional, Dict, Any
 import json
 import os
@@ -84,14 +85,17 @@ async def analyze_email_with_gemini(
             "response_mime_type": "application/json"
         }
         
-        # Gera resposta
+        # Gera resposta com system instruction e thinking mode
         response = client.models.generate_content(
             model=model or settings.GEMINI_MODEL,
             contents=[
-                {"role": "system", "parts": [{"text": system_prompt}]},
                 {"role": "user", "parts": [{"text": user_prompt}]}
             ],
-            config=genai.types.GenerateContentConfig(
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,  # System instruction correta
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=-1  # Dynamic thinking mode
+                ),
                 **generation_config,
                 safety_settings=[
                     {
@@ -132,21 +136,23 @@ async def analyze_email_with_gemini(
                 
             # Captura tokens de output/candidates
             if hasattr(metadata, 'candidates_token_count'):
-                usage_metadata["output_tokens"] = metadata.candidates_token_count
+                value = metadata.candidates_token_count
+                usage_metadata["output_tokens"] = value if value is not None else 0
                 
             # Captura tokens de pensamento (para modelos 2.5)
             if hasattr(metadata, 'thoughts_token_count'):
-                usage_metadata["thought_tokens"] = metadata.thoughts_token_count
+                value = metadata.thoughts_token_count
+                usage_metadata["thought_tokens"] = value if value is not None else 0
                 
             # Captura total de tokens
             if hasattr(metadata, 'total_token_count'):
                 usage_metadata["total_tokens"] = metadata.total_token_count
             else:
-                # Calcula total se não fornecido
+                # Calcula total se não fornecido (garantindo valores numéricos)
                 usage_metadata["total_tokens"] = (
-                    usage_metadata["prompt_tokens"] + 
-                    usage_metadata["output_tokens"] + 
-                    usage_metadata["thought_tokens"]
+                    (usage_metadata["prompt_tokens"] or 0) + 
+                    (usage_metadata["output_tokens"] or 0) + 
+                    (usage_metadata["thought_tokens"] or 0)
                 )
         
         logger.info(
@@ -156,8 +162,35 @@ async def analyze_email_with_gemini(
             f"Total: {usage_metadata['total_tokens']}"
         )
         
-        # Extrai e valida JSON da resposta
-        result_text = response.text
+        # Extrai e valida JSON da resposta com tratamento seguro
+        result_text = None
+        
+        # Primeiro tenta response.text
+        if hasattr(response, 'text') and response.text:
+            result_text = response.text
+        # Depois tenta via candidates
+        elif hasattr(response, 'candidates') and response.candidates:
+            for candidate in response.candidates:
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                result_text = part.text
+                                break
+                    elif hasattr(candidate.content, 'text') and candidate.content.text:
+                        result_text = candidate.content.text
+                if result_text:
+                    break
+        
+        if not result_text:
+            # Verifica se foi truncado por MAX_TOKENS
+            if response.candidates and response.candidates[0].finish_reason:
+                finish_reason = str(response.candidates[0].finish_reason)
+                if 'MAX_TOKENS' in finish_reason:
+                    logger.error(f"Response truncated due to MAX_TOKENS limit. Consider increasing max_output_tokens.")
+                    raise ValueError("Response truncated - increase max_output_tokens in config")
+            logger.error("No text found in response")
+            raise ValueError("No text content in Gemini response")
         
         # Tenta fazer parse do JSON
         try:
@@ -177,34 +210,8 @@ async def analyze_email_with_gemini(
             else:
                 raise ValueError("Resposta do Gemini não contém JSON")
         
-        # Valida campos obrigatórios
-        required_fields = ["decision", "confidence", "email_type", "urgency", "reason"]
-        for field in required_fields:
-            if field not in result:
-                raise ValueError(f"Campo obrigatório '{field}' não encontrado na resposta")
-        
-        # Valida decision
-        if result["decision"] not in ["respond", "ignore"]:
-            raise ValueError(f"Decisão inválida: {result['decision']}")
-        
-        # Valida confidence
-        if not isinstance(result["confidence"], (int, float)) or not 0 <= result["confidence"] <= 1:
-            raise ValueError(f"Confidence inválido: {result['confidence']}")
-        
-        # Se decision=respond, valida suggested_response
-        if result["decision"] == "respond":
-            if "suggested_response" not in result:
-                raise ValueError("suggested_response é obrigatório quando decision=respond")
-            
-            sr = result["suggested_response"]
-            if not isinstance(sr, dict) or "subject" not in sr or "body" not in sr:
-                raise ValueError("suggested_response deve conter 'subject' e 'body'")
-        
-        logger.info(
-            f"E-mail analisado com sucesso - "
-            f"Decisão: {result['decision']}, "
-            f"Confiança: {result['confidence']:.2f}"
-        )
+        # Log do resultado parseado (genérico, sem validação específica)
+        logger.info(f"JSON parseado com sucesso do Gemini")
         
         # Adiciona os metadados de uso ao resultado
         result["usage_metadata"] = usage_metadata
@@ -227,7 +234,7 @@ def test_gemini_connection() -> bool:
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents="Responda apenas com 'OK' se você está funcionando.",
-            config=genai.types.GenerateContentConfig(
+            config=types.GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=10
             )
