@@ -69,6 +69,39 @@ class ResponseService:
             logger.error(f"Failed to load {prompt_type} prompt: {e}")
             raise
     
+    def _load_product_info(self, product_name: str) -> Optional[str]:
+        """
+        Carrega as informações do produto do arquivo correspondente
+        
+        Args:
+            product_name: Nome do produto
+            
+        Returns:
+            Conteúdo do arquivo do produto ou None se não encontrado
+        """
+        if not product_name:
+            return None
+        
+        try:
+            product_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                'docs',
+                f'{product_name}.txt'
+            )
+            
+            if os.path.exists(product_path):
+                with open(product_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                logger.info(f"Product information loaded for {product_name}")
+                return content
+            else:
+                logger.warning(f"Product file not found: {product_name}.txt")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to load product info for {product_name}: {e}")
+            return None
+    
     async def generate_response(
         self,
         request: ResponseGenerationInput,
@@ -91,6 +124,27 @@ class ResponseService:
             is_support = request.classification.get('is_support', False)
             is_tracking = request.classification.get('is_tracking', False)
             has_tracking_data = request.tracking_data and request.tracking_data.get('found', False)
+            product_name = request.classification.get('product_name')
+            
+            # Verifica se o email é sobre um produto válido
+            if not product_name:
+                logger.warning(f"Email {request.email_id} não está relacionado a nenhum produto conhecido")
+                # Se não for sobre produto, retorna resposta genérica ou erro
+                if not is_support and not is_tracking:
+                    return GeneratedResponse(
+                        email_id=request.email_id,
+                        suggested_subject="Re: Sua mensagem",
+                        response_body="Obrigado pelo seu contato. Sua mensagem não está relacionada aos nossos produtos. Para dúvidas sobre nossos produtos (Alphacur, Arialief, Blinzador, GoldenFrib, Kymezol, Presgera), entre em contato conosco.",
+                        tone=ResponseTone.NEUTRAL,
+                        response_type="not_product_related",
+                        confidence=0.5,
+                        processing_time_ms=int((time.time() - start_time) * 1000),
+                        saved_to_db=False,
+                        error="Email não relacionado a produtos"
+                    )
+            
+            # Carrega informações do produto
+            product_info = self._load_product_info(product_name) if product_name else None
             
             if is_support and is_tracking and has_tracking_data:
                 response_type = 'combined'
@@ -98,6 +152,10 @@ class ResponseService:
             else:
                 response_type = 'support'
                 system_prompt = self._load_prompt('support')
+            
+            # Adiciona informações do produto ao prompt do sistema
+            if product_info:
+                system_prompt += f"\n\n=== INFORMAÇÕES DO PRODUTO {product_name.upper()} ===\n{product_info}\n=== FIM DAS INFORMAÇÕES DO PRODUTO ===\n\nUse as informações acima sobre o produto {product_name} para fornecer respostas precisas e específicas ao cliente."
             
             # Prepara contexto para LLM
             user_prompt = self._build_user_prompt(request, response_type)
@@ -257,6 +315,7 @@ class ResponseService:
         CLASSIFICAÇÃO:
         - É suporte: {classification.get('is_support', False)}
         - É rastreamento: {classification.get('is_tracking', False)}
+        - Produto mencionado: {classification.get('product_name', 'Nenhum')}
         - Urgência: {classification.get('urgency', 'normal')}
         - Tipo: {classification.get('email_type', 'other')}
         """

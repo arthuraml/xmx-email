@@ -17,6 +17,7 @@ from ..models.classification import (
 )
 from ..db.supabase import get_supabase
 from google import genai
+from google.genai import types
 import json
 
 
@@ -91,7 +92,7 @@ class ClassificationService:
             client = get_gemini_client()
             
             generation_config = {
-                "temperature": 0.2,  # Baixa para classificação consistente
+                "temperature": 0.0,  # Zero para máxima determinística
                 "top_p": 0.9,
                 "max_output_tokens": 500,
                 "response_mime_type": "application/json"
@@ -100,10 +101,13 @@ class ClassificationService:
             response = client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=[
-                    {"role": "system", "parts": [{"text": system_prompt}]},
                     {"role": "user", "parts": [{"text": user_prompt}]}
                 ],
-                config=genai.types.GenerateContentConfig(
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,  # System instruction correta
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=-1  # Dynamic thinking mode
+                    ),
                     **generation_config,
                     safety_settings=[
                         {
@@ -126,8 +130,35 @@ class ClassificationService:
                 )
             )
             
-            # Parse resposta
-            result_text = response.text
+            # Parse resposta com tratamento seguro
+            result_text = None
+            
+            # Primeiro tenta response.text
+            if hasattr(response, 'text') and response.text:
+                result_text = response.text
+            # Depois tenta via candidates
+            elif hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    result_text = part.text
+                                    break
+                        elif hasattr(candidate.content, 'text') and candidate.content.text:
+                            result_text = candidate.content.text
+                    if result_text:
+                        break
+            
+            if not result_text:
+                # Verifica se foi truncado por MAX_TOKENS
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = str(response.candidates[0].finish_reason)
+                    if 'MAX_TOKENS' in finish_reason:
+                        logger.error(f"Classification response truncated due to MAX_TOKENS limit")
+                        raise ValueError("Response truncated - increase max_output_tokens")
+                logger.error("No text found in classification response")
+                raise ValueError("No text content in Gemini response")
             classification_data = json.loads(result_text)
             
             # Calcula tempo de processamento
@@ -157,6 +188,7 @@ class ClassificationService:
                 confidence=float(classification_data['confidence']),
                 reason=classification_data['reason'],
                 key_phrases=classification_data.get('key_phrases', []),
+                product_name=classification_data.get('product_name'),
                 processing_time_ms=processing_time_ms,
                 prompt_tokens=token_metadata.get('prompt_tokens'),
                 output_tokens=token_metadata.get('output_tokens'),
@@ -173,6 +205,7 @@ class ClassificationService:
                 f"Email {email.email_id} classified - "
                 f"Support: {result.is_support}, "
                 f"Tracking: {result.is_tracking}, "
+                f"Product: {result.product_name or 'None'}, "
                 f"Confidence: {result.confidence:.2f}"
             )
             

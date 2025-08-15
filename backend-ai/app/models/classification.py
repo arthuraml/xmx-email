@@ -53,6 +53,7 @@ class EmailClassificationResult(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confiança na classificação")
     reason: str = Field(..., description="Razão da classificação")
     key_phrases: List[str] = Field(default_factory=list, description="Frases-chave identificadas")
+    product_name: Optional[str] = Field(None, description="Nome do produto relacionado ao e-mail")
     
     # Metadados de processamento
     processing_time_ms: Optional[int] = Field(None, description="Tempo de processamento")
@@ -97,6 +98,7 @@ class EmailClassificationResult(BaseModel):
                 "confidence": 0.95,
                 "reason": "Cliente solicitando informações sobre entrega",
                 "key_phrases": ["onde está meu pedido", "status da entrega"],
+                "product_name": "Alphacur",
                 "processing_time_ms": 1234,
                 "prompt_tokens": 250,
                 "output_tokens": 150,
