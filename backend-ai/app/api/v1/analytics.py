@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, date
 from loguru import logger
+import os
 
 from ...core.security import verify_api_key
 from ...db.supabase import get_supabase
@@ -416,4 +417,200 @@ async def estimate_costs(
         raise HTTPException(
             status_code=500,
             detail=f"Error estimating costs: {str(e)}"
+        )
+
+
+@router.get(
+    "/products/summary",
+    summary="Resumo por produto",
+    description="Retorna estatísticas de processamento por produto"
+)
+async def get_product_summary(
+    period: str = Query(default="all", regex="^(today|week|month|all)$"),
+    api_key: str = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Retorna estatísticas agregadas por produto
+    """
+    try:
+        supabase = get_supabase()
+        
+        # Define período de consulta
+        now = datetime.now()
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        else:  # all
+            start_date = None
+        
+        # Query para buscar emails processados
+        query = supabase.table("processed_emails").select(
+            "product_name, cost_total_brl, cost_total_usd, total_tokens, "
+            "is_support, is_tracking, created_at"
+        )
+        
+        if start_date:
+            query = query.gte("created_at", start_date.isoformat())
+        
+        result = query.execute()
+        
+        # Carrega lista de produtos válidos
+        products_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            'docs',
+            'products_list.txt'
+        )
+        
+        valid_products = []
+        if os.path.exists(products_file):
+            with open(products_file, 'r', encoding='utf-8') as f:
+                valid_products = [line.strip() for line in f.readlines() if line.strip()]
+        
+        # Inicializa estatísticas por produto
+        product_stats = {}
+        for product in valid_products:
+            product_stats[product] = {
+                "count": 0,
+                "support_count": 0,
+                "tracking_count": 0,
+                "cost_brl": 0,
+                "cost_usd": 0,
+                "tokens": 0,
+                "with_response": 0  # Contador para emails que geraram resposta
+            }
+        
+        # Adiciona categoria para emails sem produto
+        product_stats["Sem Produto"] = {
+            "count": 0,
+            "support_count": 0,
+            "tracking_count": 0,
+            "cost_brl": 0,
+            "cost_usd": 0,
+            "tokens": 0,
+            "with_response": 0
+        }
+        
+        # Processa emails
+        total_with_product = 0
+        total_without_product = 0
+        total_cost_brl = 0
+        total_cost_usd = 0
+        
+        for email in result.data:
+            product = email.get("product_name")
+            cost_brl = email.get("cost_total_brl", 0)
+            cost_usd = email.get("cost_total_usd", 0)
+            tokens = email.get("total_tokens", 0)
+            
+            total_cost_brl += cost_brl
+            total_cost_usd += cost_usd
+            
+            if product and product in product_stats:
+                total_with_product += 1
+                product_stats[product]["count"] += 1
+                product_stats[product]["cost_brl"] += cost_brl
+                product_stats[product]["cost_usd"] += cost_usd
+                product_stats[product]["tokens"] += tokens
+                
+                if email.get("is_support"):
+                    product_stats[product]["support_count"] += 1
+                if email.get("is_tracking"):
+                    product_stats[product]["tracking_count"] += 1
+                    
+                # Considera que teve resposta se tem produto
+                product_stats[product]["with_response"] += 1
+            else:
+                total_without_product += 1
+                product_stats["Sem Produto"]["count"] += 1
+                product_stats["Sem Produto"]["cost_brl"] += cost_brl
+                product_stats["Sem Produto"]["cost_usd"] += cost_usd
+                product_stats["Sem Produto"]["tokens"] += tokens
+                
+                if email.get("is_support"):
+                    product_stats["Sem Produto"]["support_count"] += 1
+                if email.get("is_tracking"):
+                    product_stats["Sem Produto"]["tracking_count"] += 1
+        
+        # Calcula economia potencial (custos de emails sem produto)
+        potential_savings_brl = product_stats["Sem Produto"]["cost_brl"]
+        potential_savings_usd = product_stats["Sem Produto"]["cost_usd"]
+        
+        return {
+            "period": period,
+            "period_start": start_date.isoformat() if start_date else None,
+            "products": valid_products,
+            "statistics": product_stats,
+            "summary": {
+                "total_emails": len(result.data),
+                "emails_with_product": total_with_product,
+                "emails_without_product": total_without_product,
+                "total_cost_brl": round(total_cost_brl, 2),
+                "total_cost_usd": round(total_cost_usd, 6),
+                "potential_savings_brl": round(potential_savings_brl, 2),
+                "potential_savings_usd": round(potential_savings_usd, 6),
+                "product_coverage_rate": round(total_with_product / len(result.data) * 100, 1) if result.data else 0
+            },
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating product summary: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating product summary: {str(e)}"
+        )
+
+
+@router.get(
+    "/products/list",
+    summary="Lista de produtos",
+    description="Retorna lista de produtos configurados no sistema"
+)
+async def get_products_list(
+    api_key: str = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Retorna lista de produtos válidos do sistema
+    """
+    try:
+        # Carrega lista de produtos
+        products_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            'docs',
+            'products_list.txt'
+        )
+        
+        products = []
+        if os.path.exists(products_file):
+            with open(products_file, 'r', encoding='utf-8') as f:
+                products = [line.strip() for line in f.readlines() if line.strip()]
+        
+        # Para cada produto, verifica se existe arquivo de informações
+        product_info = {}
+        for product in products:
+            info_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                'docs',
+                f'{product}.txt'
+            )
+            product_info[product] = {
+                "name": product,
+                "has_info_file": os.path.exists(info_file)
+            }
+        
+        return {
+            "products": products,
+            "product_info": product_info,
+            "total_products": len(products),
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching products list: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching products list: {str(e)}"
         )

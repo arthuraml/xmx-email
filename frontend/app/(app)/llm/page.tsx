@@ -74,6 +74,7 @@ export default function LLMPage() {
   const [processing, setProcessing] = useState(false)
   const [costSummary, setCostSummary] = useState<any>(null)
   const [dailyCosts, setDailyCosts] = useState<any>(null)
+  const [productSummary, setProductSummary] = useState<any>(null)
   const [mainTab, setMainTab] = useState('emails')
 
   // Fetch processed emails
@@ -130,6 +131,19 @@ export default function LLMPage() {
       if (dailyResponse.ok) {
         const dailyData = await dailyResponse.json()
         setDailyCosts(dailyData)
+      }
+      
+      // Fetch product summary
+      const productResponse = await fetch('/api/llm/analytics/products/summary?period=all', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (productResponse.ok) {
+        const productData = await productResponse.json()
+        setProductSummary(productData)
       }
       
     } catch (error) {
@@ -286,8 +300,12 @@ export default function LLMPage() {
 
       {/* Main Tabs */}
       <Tabs value={mainTab} onValueChange={setMainTab}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="emails">E-mails Processados</TabsTrigger>
+          <TabsTrigger value="products">
+            <Package className="h-4 w-4 mr-2" />
+            Produtos
+          </TabsTrigger>
           <TabsTrigger value="analytics">
             <DollarSign className="h-4 w-4 mr-2" />
             Custos e Análise
@@ -364,6 +382,15 @@ export default function LLMPage() {
                               <Badge variant={getUrgencyColor(email.urgency)} className="text-xs">
                                 {email.urgency}
                               </Badge>
+                              {email.product_name ? (
+                                <Badge variant="default" className="text-xs">
+                                  {email.product_name}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">
+                                  Sem produto
+                                </Badge>
+                              )}
                               {email.is_support && (
                                 <Badge variant="outline" className="text-xs">
                                   Suporte
@@ -535,6 +562,104 @@ export default function LLMPage() {
           </div>
           </TabsContent>
         </Tabs>
+      </TabsContent>
+      
+      {/* Products Tab */}
+      <TabsContent value="products" className="space-y-4">
+        <div className="grid gap-4">
+          {/* Products Overview */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Produtos Monitorados</CardTitle>
+              <CardDescription>
+                Sistema configurado para processar apenas e-mails relacionados aos produtos abaixo
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {productSummary?.products?.map((product: string) => (
+                  <div key={product} className="p-3 border rounded-lg">
+                    <div className="font-medium">{product}</div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {productSummary?.statistics?.[product]?.count || 0} emails
+                    </div>
+                    {productSummary?.statistics?.[product]?.cost_brl > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        R$ {productSummary.statistics[product].cost_brl.toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Product Statistics */}
+          {productSummary && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Estatísticas por Produto</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {Object.entries(productSummary.statistics).map(([product, stats]: [string, any]) => (
+                      <div key={product} className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{product}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {stats.support_count} suporte | {stats.tracking_count} rastreamento
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <Badge variant={product === "Sem Produto" ? "secondary" : "default"}>
+                            {stats.count} emails
+                          </Badge>
+                          {stats.with_response > 0 && (
+                            <div className="text-xs text-green-600 mt-1">
+                              {stats.with_response} com resposta
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Economia Potencial</CardTitle>
+                  <CardDescription>
+                    Custos evitáveis com validação de produtos
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <div className="text-sm text-muted-foreground">Emails sem produto</div>
+                      <div className="text-2xl font-bold">
+                        {productSummary?.summary?.emails_without_product || 0}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-muted-foreground">Economia potencial</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        R$ {productSummary?.summary?.potential_savings_brl?.toFixed(2) || "0.00"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-muted-foreground">Taxa de cobertura</div>
+                      <div className="text-lg font-semibold">
+                        {productSummary?.summary?.product_coverage_rate?.toFixed(1) || 0}%
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
       </TabsContent>
       
       {/* Analytics Tab */}

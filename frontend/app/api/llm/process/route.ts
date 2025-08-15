@@ -52,61 +52,46 @@ export async function POST(request: NextRequest) {
     }
     
     // Call Python AI backend to process email
-    const aiBackendUrl = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8001/api/v1'
+    const aiBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'
     const apiKey = process.env.AI_API_KEY || 'your-api-key'
     
-    // Step 1: Classify the email
-    const classificationResponse = await fetch(`${aiBackendUrl}/classification/classify`, {
+    // Step 1: Process the email (classification + tracking)
+    const processingResponse = await fetch(`${aiBackendUrl}/api/v1/emails/process`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'X-API-Key': apiKey
       },
       body: JSON.stringify(emailData)
     })
     
-    if (!classificationResponse.ok) {
-      const error = await classificationResponse.json()
+    if (!processingResponse.ok) {
+      const error = await processingResponse.json()
       return NextResponse.json(
-        { error: error.detail || 'Failed to classify email' },
-        { status: classificationResponse.status }
+        { error: error.detail || 'Failed to process email' },
+        { status: processingResponse.status }
       )
     }
     
-    const classification = await classificationResponse.json()
+    const processingResult = await processingResponse.json()
+    const classification = processingResult.classification
+    const trackingData = processingResult.tracking_data
     
-    // Step 2: Check for tracking data if needed
-    let trackingData = null
-    if (classification.is_tracking) {
-      try {
-        const trackingResponse = await fetch(
-          `${aiBackendUrl}/tracking/search?email=${encodeURIComponent(emailData.from_address)}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`
-            }
-          }
-        )
-        
-        if (trackingResponse.ok) {
-          const tracking = await trackingResponse.json()
-          if (tracking.orders && tracking.orders.length > 0) {
-            trackingData = tracking.orders[0]
-          }
-        }
-      } catch (trackingError) {
-        console.error('Tracking fetch error:', trackingError)
-      }
-    }
+    // Step 2: Tracking data is already included in the processing result
+    // No need for separate tracking call anymore
     
     // Step 3: Generate response if needed
     let generatedResponse = null
-    if (classification.is_support || classification.is_tracking) {
-      const responseGeneration = await fetch(`${aiBackendUrl}/response/generate`, {
+    let responseError = null
+    let responseGenerated = false
+    
+    // Only generate response if product is identified AND (is_support OR is_tracking)
+    if (classification && classification.product_name && (classification.is_support || classification.is_tracking)) {
+      const responseGeneration = await fetch(`${aiBackendUrl}/api/v1/response/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'X-API-Key': apiKey
         },
         body: JSON.stringify({
           email_id: emailData.email_id,
@@ -116,9 +101,45 @@ export async function POST(request: NextRequest) {
         })
       })
       
+      responseGenerated = true
+      
       if (responseGeneration.ok) {
         generatedResponse = await responseGeneration.json()
+        
+        // Check if the response indicates an error
+        if (generatedResponse.response_type === 'error' || generatedResponse.error) {
+          responseError = generatedResponse.error || 'Erro ao gerar resposta'
+        }
+      } else {
+        try {
+          const errorData = await responseGeneration.json()
+          responseError = errorData.detail || 'Erro ao gerar resposta'
+        } catch {
+          responseError = 'Erro ao gerar resposta'
+        }
       }
+    }
+    
+    // If there was an error in response generation, return with success: false
+    if (responseError) {
+      return NextResponse.json({
+        success: false,
+        email_id: emailData.email_id,
+        classification,
+        tracking_data: trackingData,
+        generated_response: generatedResponse,
+        tokens: processingResult.tokens,
+        processing_time: processingResult.processing_time,
+        error: `E-mail processado mas houve erro na geração da resposta: ${responseError}`
+      })
+    }
+    
+    // Add informational message if no product was identified
+    let message = null
+    if (classification && !classification.product_name) {
+      message = 'Email processado mas não foi gerada resposta pois não se refere a nenhum produto conhecido (Alphacur, Arialief, Blinzador, GoldenFrib, Kymezol, Presgera)'
+    } else if (!responseGenerated) {
+      message = 'Email processado mas não foi gerada resposta pois não é uma solicitação de suporte ou rastreamento'
     }
     
     return NextResponse.json({
@@ -126,7 +147,11 @@ export async function POST(request: NextRequest) {
       email_id: emailData.email_id,
       classification,
       tracking_data: trackingData,
-      generated_response: generatedResponse
+      generated_response: generatedResponse,
+      response_generated: responseGenerated,
+      tokens: processingResult.tokens,
+      processing_time: processingResult.processing_time,
+      message
     })
     
   } catch (error) {

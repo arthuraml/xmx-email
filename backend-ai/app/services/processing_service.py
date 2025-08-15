@@ -36,27 +36,41 @@ class ProcessingService:
         """
         if self.classification_prompt is None:
             self.classification_prompt = """
-Você é um assistente de classificação de e-mails para suporte ao cliente.
+Você é um assistente de classificação de e-mails para suporte ao cliente da empresa Biofraga.
+
+PRODUTOS COMERCIALIZADOS:
+A empresa comercializa EXCLUSIVAMENTE os seguintes produtos:
+- Alphacur (suplemento para neuropatia)
+- Arialief (suplemento para neuropatia)
+- Blinzador (spray antifúngico para pés e unhas)
+- GoldenFrib (suplemento para saúde digestiva)
+- Kymezol (creme para alívio de neuropatia)
+- Presgera (suplemento para neuropatia)
 
 Analise o e-mail fornecido e determine:
 
 1. **is_support**: Se é uma solicitação de suporte ao cliente (true/false)
 2. **is_tracking**: Se o cliente está perguntando sobre rastreamento/status de pedido (true/false)
-3. **urgency**: Nível de urgência (low, medium, high)
-4. **email_type**: Tipo do e-mail (question, complaint, request, spam, newsletter, auto_reply, other)
-5. **confidence**: Sua confiança na classificação (0.0 a 1.0)
-6. **extracted_order_id**: Se houver menção a número de pedido, extraia-o
+3. **product_name**: Qual produto específico o e-mail menciona (deve ser exatamente um dos listados acima, ou null)
+4. **urgency**: Nível de urgência (low, medium, high)
+5. **email_type**: Tipo do e-mail (question, complaint, request, spam, newsletter, auto_reply, other)
+6. **confidence**: Sua confiança na classificação (0.0 a 1.0)
+7. **extracted_order_id**: Se houver menção a número de pedido, extraia-o
 
 IMPORTANTE:
 - E-mails sobre "onde está meu pedido", "status da entrega", "rastreamento", "tracking" devem ter is_tracking=true
 - E-mails com perguntas sobre produtos, problemas, reclamações devem ter is_support=true
 - Um e-mail pode ser AMBOS support E tracking
 - Procure por números de pedido no formato: números longos, códigos alfanuméricos, menções a "pedido #X"
+- IDENTIFICAÇÃO DE PRODUTO: O e-mail deve mencionar explicitamente o nome do produto
+- Se não mencionar nenhum produto específico ou mencionar produto não listado, retorne product_name como null
+- SEMPRE retorne o nome exato do produto conforme listado (com capitalização correta)
 
 Responda APENAS em formato JSON válido:
 {
     "is_support": boolean,
     "is_tracking": boolean,
+    "product_name": "Nome do produto" ou null,
     "urgency": "low|medium|high",
     "email_type": "question|complaint|request|spam|newsletter|auto_reply|other",
     "confidence": 0.0-1.0,
@@ -176,6 +190,7 @@ Responda APENAS em formato JSON válido:
                 "classification_confidence": float(classification.confidence),
                 "email_type": classification.email_type,
                 "urgency": classification.urgency,
+                "product_name": classification.product_name,  # Adiciona nome do produto
                 "processing_time_ms": int(processing_time * 1000),
                 "prompt_tokens": tokens.input_tokens,
                 "output_tokens": tokens.output_tokens,
@@ -260,7 +275,8 @@ Responda APENAS em formato JSON válido:
                     urgency=gemini_response.get("urgency", "medium"),
                     confidence=float(gemini_response.get("confidence", 0.5)),
                     email_type=gemini_response.get("email_type", "other"),
-                    extracted_order_id=gemini_response.get("extracted_order_id")
+                    extracted_order_id=gemini_response.get("extracted_order_id"),
+                    product_name=gemini_response.get("product_name")
                 )
             
             # Compatibilidade com formato antigo

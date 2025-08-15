@@ -16,6 +16,7 @@ class EmailClassification(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confiança na classificação")
     email_type: str = Field("question", description="Tipo do e-mail")
     extracted_order_id: Optional[str] = Field(None, description="ID do pedido extraído do e-mail se mencionado")
+    product_name: Optional[str] = Field(None, description="Nome do produto relacionado ao e-mail")
 
 
 class TrackingInfo(BaseModel):
