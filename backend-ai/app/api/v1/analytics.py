@@ -55,6 +55,66 @@ async def get_processed_emails(
         
         # Calcula totais
         emails = result.data
+        
+        # Se houver emails, busca as respostas e tracking correspondentes
+        if emails:
+            # Coleta todos os email_ids únicos
+            email_ids = list(set(email.get("email_id") for email in emails if email.get("email_id")))
+            
+            if email_ids:
+                # Busca as respostas mais recentes para cada email_id
+                responses_query = supabase.table("llm_responses").select(
+                    "email_id, suggested_subject, suggested_body, tone, approved, sent, confidence, created_at"
+                ).in_("email_id", email_ids).order("created_at", desc=True)
+                
+                responses_result = responses_query.execute()
+                
+                # Cria um dicionário de respostas por email_id (pega a mais recente)
+                responses_by_email = {}
+                for response in responses_result.data:
+                    email_id = response.get("email_id")
+                    # Só adiciona se ainda não tiver (pega primeira/mais recente)
+                    if email_id and email_id not in responses_by_email:
+                        responses_by_email[email_id] = response
+                
+                # Busca dados de tracking
+                tracking_query = supabase.table("tracking_requests").select(
+                    "email_id, order_id, tracking_code, status, tracking_details, created_at"
+                ).in_("email_id", email_ids).order("created_at", desc=True)
+                
+                tracking_result = tracking_query.execute()
+                
+                # Cria um dicionário de tracking por email_id (pega o mais recente)
+                tracking_by_email = {}
+                for tracking in tracking_result.data:
+                    email_id = tracking.get("email_id")
+                    if email_id and email_id not in tracking_by_email:
+                        tracking_by_email[email_id] = tracking
+                
+                # Adiciona as respostas e tracking aos emails correspondentes
+                for email in emails:
+                    email_id = email.get("email_id")
+                    
+                    # Adiciona dados de resposta
+                    if email_id and email_id in responses_by_email:
+                        response = responses_by_email[email_id]
+                        email["suggested_subject"] = response.get("suggested_subject")
+                        email["suggested_body"] = response.get("suggested_body")
+                        email["response_tone"] = response.get("tone")
+                        email["response_approved"] = response.get("approved")
+                        email["response_sent"] = response.get("sent")
+                        email["response_confidence"] = response.get("confidence")
+                    
+                    # Adiciona dados de tracking
+                    if email_id and email_id in tracking_by_email:
+                        tracking = tracking_by_email[email_id]
+                        email["tracking_data"] = {
+                            "order_id": tracking.get("order_id"),
+                            "tracking_code": tracking.get("tracking_code"),
+                            "status": tracking.get("status"),
+                            "last_location": tracking.get("tracking_details", {}).get("last_location") if tracking.get("tracking_details") else None
+                        }
+        
         total_cost_brl = sum(e.get("cost_total_brl", 0) for e in emails)
         total_cost_usd = sum(e.get("cost_total_usd", 0) for e in emails)
         total_tokens = sum(e.get("total_tokens", 0) for e in emails)

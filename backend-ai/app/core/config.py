@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     MYSQL_PASSWORD: str
     MYSQL_POOL_SIZE: int = 5
     MYSQL_POOL_MAX_OVERFLOW: int = 10
+    MYSQL_POOL_RECYCLE: int = 3600  # Recicla conexões a cada 1 hora
+    MYSQL_CONNECT_TIMEOUT: int = 10  # Timeout de conexão em segundos
+    MYSQL_READ_TIMEOUT: int = 30  # Timeout de leitura em segundos
+    MYSQL_WRITE_TIMEOUT: int = 30  # Timeout de escrita em segundos
     
     # Redis Configuration (for future async processing)
     REDIS_URL: Optional[str] = "redis://localhost:6379"

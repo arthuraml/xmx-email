@@ -1,48 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Fetch processed emails from Python backend via Node.js
+// Fetch processed emails from Python backend
 export async function GET(request: NextRequest) {
   try {
-    // For now, fetch from Supabase directly
-    // In production, this would go through the Python backend
-    const { createClient } = await import('@/utils/supabase/server')
-    const supabase = await createClient()
+    const searchParams = request.nextUrl.searchParams
+    const limit = searchParams.get('limit') || '100'
+    const offset = searchParams.get('offset') || '0'
     
-    // Fetch processed emails with their responses and costs
-    const { data: processedEmails, error } = await supabase
-      .from('processed_emails')
-      .select(`
-        *,
-        llm_responses (
-          suggested_subject,
-          suggested_body,
-          tone,
-          approved,
-          sent,
-          confidence,
-          cost_total_brl,
-          cost_total_usd
-        ),
-        tracking_requests (
-          order_id,
-          tracking_code,
-          status,
-          tracking_details
-        )
-      `)
-      .order('received_at', { ascending: false })
-      .limit(50)
+    // Call Python backend API
+    const aiBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'
+    const apiKey = process.env.AI_API_KEY || 'your-api-key'
     
-    if (error) {
-      console.error('Error fetching processed emails:', error)
+    const response = await fetch(
+      `${aiBackendUrl}/api/v1/analytics/processed?limit=${limit}&offset=${offset}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-API-Key': apiKey
+        }
+      }
+    )
+    
+    if (!response.ok) {
+      console.error('Backend API error:', response.status, response.statusText)
       return NextResponse.json(
         { error: 'Failed to fetch processed emails' },
         { status: 500 }
       )
     }
     
-    // Format emails for frontend
-    const formattedEmails = processedEmails?.map(email => ({
+    const data = await response.json()
+    
+    // Format emails for frontend compatibility
+    const formattedEmails = data.emails?.map((email: any) => ({
       email_id: email.email_id,
       from_address: email.from_address,
       to_address: email.to_address,
@@ -56,35 +46,34 @@ export async function GET(request: NextRequest) {
       classification_type: determineClassificationType(email.is_support, email.is_tracking),
       urgency: email.urgency || 'medium',
       confidence: email.classification_confidence || 0,
+      product_name: email.product_name,
       
-      // Response
-      suggested_subject: email.llm_responses?.[0]?.suggested_subject,
-      suggested_body: email.llm_responses?.[0]?.suggested_body,
-      response_tone: email.llm_responses?.[0]?.tone,
-      response_approved: email.llm_responses?.[0]?.approved,
-      response_sent: email.llm_responses?.[0]?.sent,
+      // Response (se houver no futuro)
+      suggested_subject: email.suggested_subject,
+      suggested_body: email.suggested_body,
+      response_tone: email.response_tone,
+      response_approved: email.response_approved,
+      response_sent: email.response_sent,
+      response_generated: email.response_generated,
       
-      // Tracking
-      tracking_data: email.tracking_requests?.[0] ? {
-        order_id: email.tracking_requests[0].order_id,
-        tracking_code: email.tracking_requests[0].tracking_code,
-        status: email.tracking_requests[0].status,
-        last_location: email.tracking_requests[0].tracking_details?.last_location || null
-      } : undefined,
+      // Tracking (se houver)
+      tracking_data: email.tracking_data,
       
       // Costs
-      cost_total_brl: email.cost_total_brl || email.llm_responses?.[0]?.cost_total_brl || 0,
-      cost_total_usd: email.cost_total_usd || email.llm_responses?.[0]?.cost_total_usd || 0,
+      cost_total_brl: email.cost_total_brl || 0,
+      cost_total_usd: email.cost_total_usd || 0,
       exchange_rate: email.exchange_rate || 0,
       total_tokens: email.total_tokens || 0,
       
       // Timestamps
-      processed_at: email.processed_at
+      processed_at: email.processed_at || email.created_at
     })) || []
     
     return NextResponse.json({
       success: true,
-      emails: formattedEmails
+      emails: formattedEmails,
+      pagination: data.pagination,
+      summary: data.summary
     })
     
   } catch (error) {

@@ -6,6 +6,8 @@ import aiomysql
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import json
+import asyncio
+from functools import wraps
 from loguru import logger
 
 from ..core.config import settings
@@ -18,6 +20,57 @@ from ..models.tracking import (
 )
 
 
+def mysql_retry(max_attempts: int = 3, delay: float = 1.0):
+    """
+    Decorator para retry automático em caso de falha de conexão MySQL
+    
+    Args:
+        max_attempts: Número máximo de tentativas
+        delay: Delay inicial entre tentativas (cresce exponencialmente)
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except (aiomysql.OperationalError, aiomysql.InterfaceError) as e:
+                    error_code = e.args[0] if e.args else 0
+                    # Erros de conexão perdida: 2006, 2013, 2014
+                    if error_code in (2006, 2013, 2014):
+                        last_exception = e
+                        if attempt < max_attempts - 1:
+                            wait_time = delay * (2 ** attempt)  # Backoff exponencial
+                            logger.warning(
+                                f"MySQL connection error (attempt {attempt + 1}/{max_attempts}): {e}. "
+                                f"Retrying in {wait_time:.1f}s..."
+                            )
+                            await asyncio.sleep(wait_time)
+                            
+                            # Tenta reinicializar o pool se necessário
+                            self = args[0] if args else None
+                            if self and hasattr(self, '_reconnect_pool'):
+                                await self._reconnect_pool()
+                        else:
+                            logger.error(f"MySQL connection failed after {max_attempts} attempts: {e}")
+                            raise
+                    else:
+                        # Para outros erros, não faz retry
+                        raise
+                except Exception as e:
+                    # Para exceções não relacionadas a conexão, não faz retry
+                    logger.error(f"Unexpected error in {func.__name__}: {e}")
+                    raise
+            
+            if last_exception:
+                raise last_exception
+                
+        return wrapper
+    return decorator
+
+
 class MySQLService:
     """
     Serviço para conectar e consultar banco MySQL de rastreamento
@@ -25,12 +78,19 @@ class MySQLService:
     
     def __init__(self):
         self.pool: Optional[aiomysql.Pool] = None
+        self._lock = asyncio.Lock()  # Para evitar múltiplas reinicializações simultâneas
         
     async def initialize(self):
         """
-        Inicializa pool de conexões MySQL
+        Inicializa pool de conexões MySQL com configurações otimizadas
         """
         try:
+            # Configurações de timeout e pool
+            connect_timeout = getattr(settings, 'MYSQL_CONNECT_TIMEOUT', 10)
+            read_timeout = getattr(settings, 'MYSQL_READ_TIMEOUT', 30)
+            write_timeout = getattr(settings, 'MYSQL_WRITE_TIMEOUT', 30)
+            pool_recycle = getattr(settings, 'MYSQL_POOL_RECYCLE', 3600)  # 1 hora
+            
             self.pool = await aiomysql.create_pool(
                 host=settings.MYSQL_HOST,
                 port=settings.MYSQL_PORT,
@@ -39,11 +99,18 @@ class MySQLService:
                 db=settings.MYSQL_DATABASE,
                 minsize=1,
                 maxsize=settings.MYSQL_POOL_SIZE,
+                pool_recycle=pool_recycle,  # Recicla conexões antigas
                 autocommit=True,
                 charset='utf8mb4',
-                cursorclass=aiomysql.DictCursor
+                cursorclass=aiomysql.DictCursor,
+                connect_timeout=connect_timeout,
+                echo=False,  # Mude para True para debug
+                init_command=f"SET SESSION wait_timeout=28800, interactive_timeout=28800"  # 8 horas
             )
-            logger.info(f"MySQL pool initialized for database: {settings.MYSQL_DATABASE}")
+            logger.info(
+                f"MySQL pool initialized for database: {settings.MYSQL_DATABASE} "
+                f"(pool_recycle={pool_recycle}s, connect_timeout={connect_timeout}s)"
+            )
             
             # Criar tabela se não existir
             await self._ensure_table_exists()
@@ -51,6 +118,35 @@ class MySQLService:
         except Exception as e:
             logger.error(f"Failed to initialize MySQL pool: {e}")
             raise
+    
+    async def _reconnect_pool(self):
+        """
+        Reinicializa o pool de conexões de forma segura
+        """
+        async with self._lock:
+            logger.info("Attempting to reconnect MySQL pool...")
+            try:
+                # Fecha o pool antigo se existir
+                if self.pool:
+                    self.pool.close()
+                    await self.pool.wait_closed()
+                    self.pool = None
+                
+                # Reinicializa o pool
+                await self.initialize()
+                logger.info("MySQL pool reconnected successfully")
+            except Exception as e:
+                logger.error(f"Failed to reconnect MySQL pool: {e}")
+                raise
+    
+    async def _ensure_connection(self):
+        """
+        Garante que o pool está inicializado e válido
+        """
+        if not self.pool:
+            await self.initialize()
+        elif self.pool.closed:
+            await self._reconnect_pool()
     
     async def close(self):
         """
@@ -78,6 +174,7 @@ class MySQLService:
                 else:
                     logger.warning("Orders table not found in database")
     
+    @mysql_retry(max_attempts=3, delay=1.0)
     async def find_tracking_by_email(
         self,
         email: str,
@@ -93,11 +190,14 @@ class MySQLService:
         Returns:
             TrackingData se encontrado, None caso contrário
         """
-        if not self.pool:
-            await self.initialize()
+        # Garante que o pool está válido
+        await self._ensure_connection()
         
         try:
             async with self.pool.acquire() as conn:
+                # Testa a conexão antes de usar (ping)
+                await conn.ping()
+                
                 async with conn.cursor() as cursor:
                     # Prepara query para tabela orders
                     if order_id:
@@ -140,6 +240,7 @@ class MySQLService:
             logger.error(f"Error querying tracking data: {e}")
             raise
     
+    @mysql_retry(max_attempts=3, delay=1.0)
     async def find_all_trackings_by_email(
         self,
         email: str,
@@ -155,11 +256,14 @@ class MySQLService:
         Returns:
             Lista de TrackingData
         """
-        if not self.pool:
-            await self.initialize()
+        # Garante que o pool está válido
+        await self._ensure_connection()
         
         try:
             async with self.pool.acquire() as conn:
+                # Testa a conexão antes de usar (ping)
+                await conn.ping()
+                
                 async with conn.cursor() as cursor:
                     query = """
                         SELECT id, order_id_cartpanda, `order`, email_client, 
@@ -398,6 +502,7 @@ class MySQLService:
                 saved_to_db=False
             )
     
+    @mysql_retry(max_attempts=2, delay=0.5)
     async def test_connection(self) -> bool:
         """
         Testa conexão com MySQL
@@ -406,10 +511,12 @@ class MySQLService:
             True se conectou com sucesso
         """
         try:
-            if not self.pool:
-                await self.initialize()
+            await self._ensure_connection()
             
             async with self.pool.acquire() as conn:
+                # Faz ping na conexão
+                await conn.ping()
+                
                 async with conn.cursor() as cursor:
                     await cursor.execute("SELECT 1")
                     result = await cursor.fetchone()

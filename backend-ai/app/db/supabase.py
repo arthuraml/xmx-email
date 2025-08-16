@@ -65,16 +65,14 @@ async def test_supabase_connection() -> bool:
 def save_processed_email(email_data: dict) -> dict:
     """
     Salva um e-mail processado no banco
-    Usa UPSERT para permitir reprocessamento de emails existentes
+    Cria um novo registro a cada processamento (permite múltiplos processamentos do mesmo email)
     """
     try:
         client = get_supabase()
         
-        # Usa upsert com on_conflict no email_id para atualizar se já existir
-        result = client.table('processed_emails').upsert(
-            email_data,
-            on_conflict='email_id'
-        ).execute()
+        # Usa insert simples para sempre criar um novo registro
+        # Cada processamento terá seu próprio ID único (UUID)
+        result = client.table('processed_emails').insert(email_data).execute()
         
         return result.data[0] if result.data else None
         
